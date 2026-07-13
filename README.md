@@ -22,6 +22,32 @@ Na primeira execução (ou quando não houver cache), o app baixa os dados
 diretamente da API do SICONFI — pode levar alguns segundos. Nas execuções
 seguintes ele lê do cache local em `data/raw/`.
 
+## Deploy em produção (Streamlit Community Cloud)
+
+Escolhido em vez de Vercel: o Streamlit precisa de um processo Python de
+longa duração com WebSocket persistente, o que não roda bem no modelo
+serverless da Vercel. O Streamlit Community Cloud é feito para este stack
+exato — puxa direto do GitHub, gratuito, sem reescrever nada.
+
+1. Acesse `https://share.streamlit.io` e faça login com a conta GitHub
+   `GuilhermeVictaliano` (o mesmo login usado no `gh auth status`).
+2. Clique em **"New app"** → **"Deploy a public app from a private GitHub repo"**
+   (o repositório pode continuar privado; só o app publicado fica público).
+3. Autorize o Streamlit a acessar o repositório `orcamento-federacao`
+   quando solicitado (instala um GitHub App com acesso só a este repo).
+4. Preencha:
+   - **Repository:** `GuilhermeVictaliano/orcamento-federacao`
+   - **Branch:** `master`
+   - **Main file path:** `app/main.py`
+5. Clique em **"Deploy"**. O primeiro carregamento demora mais (baixa os 5
+   entes da API do SICONFI do zero, sem cache — o deploy não leva o
+   conteúdo de `data/raw/`, que é gitignored).
+6. O app fica público em uma URL `https://<algo>.streamlit.app`. Free tier:
+   o app "dorme" após um tempo sem acesso e acorda no primeiro clique.
+
+Não há segredos/API keys a configurar — a API do SICONFI é pública e sem
+autenticação.
+
 ## De onde vêm os dados
 
 Fonte única: a **API pública do SICONFI** (Sistema de Informações Contábeis
