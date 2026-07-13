@@ -12,9 +12,9 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES
+from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES, classificar_execucao
 from extract.config import ENTES_MVP
-from extract.rreo import baixar_rreo
+from extract.rreo import baixar_rreo, data_atualizacao
 from transform.normalizar import normalizar_varios
 
 st.set_page_config(page_title="Orçamento Público: União x Estado x Municípios", layout="wide")
@@ -27,16 +27,43 @@ def formatar_reais(valor) -> str:
     return "R$ " + texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def formatar_pct(valor) -> str:
+    if pd.isna(valor):
+        return "—"
+    return f"{valor:.1%}"
+
+
+def enriquecer_com_percentuais(tabela: pd.DataFrame, totais_por_ente: pd.Series) -> pd.DataFrame:
+    """Adiciona: % do orçamento total do ente e % de execução (realizado / previsão atualizada),
+    já com status (ícone + rótulo) classificado a partir do % de execução.
+    """
+    df = tabela.copy()
+    df["proporcao"] = df.apply(
+        lambda linha: (linha["realizado"] / totais_por_ente[linha["ente"]]) if totais_por_ente.get(linha["ente"]) else None,
+        axis=1,
+    )
+    df["pct_execucao"] = df.apply(
+        lambda linha: (linha["realizado"] / linha["previsao_atualizada"]) if linha["previsao_atualizada"] else None,
+        axis=1,
+    )
+    status = df["pct_execucao"].map(classificar_execucao)
+    df["status_icone"] = status.map(lambda s: s["icone"])
+    df["status_rotulo"] = status.map(lambda s: s["rotulo"])
+    return df
+
+
 @st.cache_data(show_spinner="Carregando dados do SICONFI...")
 def carregar_dados(exercicio: int, bimestre: int):
     """Baixa (ou lê do cache local) o RREO de todos os entes do MVP e normaliza.
 
-    Retorna a tabela normalizada e a lista de entes sem dado declarado no período.
+    Retorna a tabela normalizada, a lista de entes sem dado declarado no período e
+    metadados de cada ente (linhas brutas baixadas, data da última sincronização).
     A API do SICONFI já teve instabilidades; se uma chamada falhar, o ente entra
     na lista de "sem dado" em vez de derrubar o app inteiro.
     """
     dados_por_ente = {}
     entes_sem_dado = []
+    metadados_entes = []
 
     for chave, info in ENTES_MVP.items():
         try:
@@ -48,9 +75,16 @@ def carregar_dados(exercicio: int, bimestre: int):
             entes_sem_dado.append(info["nome"])
 
         dados_por_ente[chave] = {"df": df_bruto, "nome": info["nome"], "nivel": info["nivel"]}
+        metadados_entes.append(
+            {
+                "ente": info["nome"],
+                "linhas_brutas": len(df_bruto),
+                "atualizado_em": data_atualizacao(info["id_ente"], exercicio, bimestre),
+            }
+        )
 
     tabela = normalizar_varios(dados_por_ente)
-    return tabela, entes_sem_dado
+    return tabela, entes_sem_dado, metadados_entes
 
 
 st.title("Orçamento Público: União x Estado x Municípios")
@@ -65,18 +99,25 @@ st.info(
     icon="ℹ️",
 )
 
+modo_periodo = st.radio(
+    "Período de análise",
+    ["Ano completo (acumulado)", "Bimestre específico"],
+    horizontal=True,
+    help="O RREO é bimestral e cada bimestre já traz o valor acumulado desde o início do ano. "
+    "\"Ano completo\" usa o acumulado até o 6º bimestre (fechamento do exercício).",
+)
+
 col_ano, col_bimestre = st.columns(2)
 with col_ano:
     exercicio = st.selectbox("Exercício", options=[2024, 2023, 2022], index=0)
 with col_bimestre:
-    bimestre = st.selectbox(
-        "Bimestre (RREO)",
-        options=[1, 2, 3, 4, 5, 6],
-        index=5,
-        help="O RREO é bimestral; o 6º bimestre traz o fechamento do exercício.",
-    )
+    if modo_periodo == "Bimestre específico":
+        bimestre = st.selectbox("Bimestre (RREO)", options=[1, 2, 3, 4, 5, 6], index=5)
+    else:
+        bimestre = 6
+        st.caption("Usando o acumulado até o 6º bimestre (equivale ao ano completo).")
 
-tabela, entes_sem_dado = carregar_dados(exercicio, bimestre)
+tabela, entes_sem_dado, metadados_entes = carregar_dados(exercicio, bimestre)
 
 if entes_sem_dado:
     st.warning(
@@ -91,26 +132,48 @@ if tabela.empty:
 entes_disponiveis = [nome for nome in ORDEM_ENTES if nome in tabela["ente"].unique()]
 entes_selecionados = st.multiselect("Entes", options=entes_disponiveis, default=entes_disponiveis)
 
-tabela_filtrada = tabela[tabela["ente"].isin(entes_selecionados)]
+tabela_entes = tabela[tabela["ente"].isin(entes_selecionados)]
 
-if tabela_filtrada.empty:
+if tabela_entes.empty:
     st.warning("Selecione ao menos um ente para ver os gráficos.")
     st.stop()
 
 escala_entes = alt.Scale(domain=ORDEM_ENTES, range=list(CORES_POR_ENTE.values()))
 
+# ---------------------------------------------------------------------------
+# Previsto x Executado por ente
+# ---------------------------------------------------------------------------
 st.header("Previsto x Executado por ente")
-resumo_ente = (
-    tabela_filtrada.groupby("ente", as_index=False)[["previsao_inicial", "realizado"]]
-    .sum()
-    .melt(id_vars="ente", var_name="tipo", value_name="valor")
-)
-resumo_ente["tipo"] = resumo_ente["tipo"].map(
-    {"previsao_inicial": "Previsão inicial", "realizado": "Realizado"}
+st.caption(
+    "**Previsão inicial** = orçamento aprovado na LOA para o ano. "
+    "**Realizado** = despesas **liquidadas** (bem/serviço já entregue) até o período selecionado — "
+    "não é apenas o valor empenhado/reservado."
 )
 
+resumo_ente = tabela_entes.groupby("ente", as_index=False)[
+    ["previsao_inicial", "previsao_atualizada", "realizado"]
+].sum()
+resumo_ente["pct_execucao"] = resumo_ente.apply(
+    lambda linha: (linha["realizado"] / linha["previsao_atualizada"]) if linha["previsao_atualizada"] else None,
+    axis=1,
+)
+cards = st.columns(len(resumo_ente))
+for coluna, (_, linha) in zip(cards, resumo_ente.iterrows()):
+    status = classificar_execucao(linha["pct_execucao"])
+    with coluna:
+        st.metric(label=linha["ente"], value=formatar_pct(linha["pct_execucao"]))
+        st.caption(f"{status['icone']} {status['rotulo']} · % de execução (realizado / previsão atualizada)")
+
+resumo_melt = resumo_ente.melt(
+    id_vars=["ente", "pct_execucao"],
+    value_vars=["previsao_inicial", "realizado"],
+    var_name="tipo",
+    value_name="valor",
+)
+resumo_melt["tipo"] = resumo_melt["tipo"].map({"previsao_inicial": "Previsão inicial", "realizado": "Realizado"})
+
 grafico_previsto_executado = (
-    alt.Chart(resumo_ente)
+    alt.Chart(resumo_melt)
     .mark_bar(cornerRadius=4)
     .encode(
         x=alt.X("ente:N", title=None, sort=entes_disponiveis),
@@ -118,12 +181,13 @@ grafico_previsto_executado = (
         xOffset=alt.XOffset("tipo:N", sort=["Previsão inicial", "Realizado"]),
         color=alt.Color(
             "tipo:N",
-            title=None,
+            title="Tipo de valor",
             scale=alt.Scale(domain=["Previsão inicial", "Realizado"], range=[COR_PREVISTO, COR_REALIZADO]),
         ),
         tooltip=[
             alt.Tooltip("ente:N", title="Ente"),
             alt.Tooltip("tipo:N", title="Tipo"),
+            alt.Tooltip("pct_execucao:Q", title="% de execução", format=".1%"),
             alt.Tooltip("valor:Q", title="Valor (R$)", format=",.2f"),
         ],
     )
@@ -131,32 +195,74 @@ grafico_previsto_executado = (
 )
 st.altair_chart(grafico_previsto_executado, width="stretch")
 
+# ---------------------------------------------------------------------------
+# Filtros (aplicam-se à seção de função de governo e à tabela completa)
+# ---------------------------------------------------------------------------
+st.header("Filtros")
+col_busca, col_funcoes, col_operador = st.columns([1.2, 1.6, 1])
+with col_busca:
+    busca_funcao = st.text_input("Buscar função por nome", placeholder="ex.: saúde")
+with col_funcoes:
+    funcoes_disponiveis = sorted(tabela_entes["funcao"].unique())
+    funcoes_selecionadas = st.multiselect("Função de governo", options=funcoes_disponiveis)
+with col_operador:
+    operador_valor = st.selectbox("Filtrar por valor realizado", ["Sem filtro", "Maior que", "Menor que", "Entre"])
+
+limite_min = limite_max = None
+if operador_valor == "Maior que":
+    limite_min = st.number_input("Valor mínimo (R$)", min_value=0.0, value=0.0, step=1_000_000.0, format="%.2f")
+elif operador_valor == "Menor que":
+    limite_max = st.number_input("Valor máximo (R$)", min_value=0.0, value=0.0, step=1_000_000.0, format="%.2f")
+elif operador_valor == "Entre":
+    col_min, col_max = st.columns(2)
+    with col_min:
+        limite_min = st.number_input("Valor mínimo (R$)", min_value=0.0, value=0.0, step=1_000_000.0, format="%.2f")
+    with col_max:
+        limite_max = st.number_input("Valor máximo (R$)", min_value=0.0, value=1_000_000_000.0, step=1_000_000.0, format="%.2f")
+
+tabela_funcoes = tabela_entes.copy()
+if busca_funcao:
+    tabela_funcoes = tabela_funcoes[tabela_funcoes["funcao"].str.contains(busca_funcao, case=False, na=False)]
+if funcoes_selecionadas:
+    tabela_funcoes = tabela_funcoes[tabela_funcoes["funcao"].isin(funcoes_selecionadas)]
+if operador_valor == "Maior que" and limite_min is not None:
+    tabela_funcoes = tabela_funcoes[tabela_funcoes["realizado"] > limite_min]
+elif operador_valor == "Menor que" and limite_max is not None:
+    tabela_funcoes = tabela_funcoes[tabela_funcoes["realizado"] < limite_max]
+elif operador_valor == "Entre" and limite_min is not None and limite_max is not None:
+    tabela_funcoes = tabela_funcoes[tabela_funcoes["realizado"].between(limite_min, limite_max)]
+
+if tabela_funcoes.empty:
+    st.warning("Nenhuma função de governo corresponde aos filtros selecionados.")
+    st.stop()
+
+# % do orçamento sempre relativo ao total do ente (não ao subconjunto filtrado),
+# para que o número continue significando "fatia do orçamento total".
+totais_por_ente = tabela_entes.groupby("ente")["realizado"].sum()
+tabela_funcoes_enriquecida = enriquecer_com_percentuais(tabela_funcoes, totais_por_ente)
+
+# ---------------------------------------------------------------------------
+# Despesa por função de governo (gráfico horizontal)
+# ---------------------------------------------------------------------------
 st.header("Despesa por função de governo")
 st.caption("Proporção do orçamento realizado de cada ente que foi para cada função de governo.")
 
-totais_por_ente = tabela_filtrada.groupby("ente")["realizado"].sum()
-tabela_prop = tabela_filtrada.copy()
-tabela_prop["proporcao"] = tabela_prop.apply(
-    lambda linha: (linha["realizado"] / totais_por_ente[linha["ente"]]) if totais_por_ente[linha["ente"]] else 0,
-    axis=1,
-)
-
-funcoes_top = (
-    tabela_filtrada.groupby("funcao")["realizado"]
+ordem_funcoes = (
+    tabela_funcoes_enriquecida.groupby("funcao")["realizado"]
     .sum()
     .sort_values(ascending=False)
-    .head(10)
+    .head(15)
     .index.tolist()
 )
-tabela_prop_top = tabela_prop[tabela_prop["funcao"].isin(funcoes_top)]
+tabela_funcoes_grafico = tabela_funcoes_enriquecida[tabela_funcoes_enriquecida["funcao"].isin(ordem_funcoes)]
 
 grafico_funcao = (
-    alt.Chart(tabela_prop_top)
+    alt.Chart(tabela_funcoes_grafico)
     .mark_bar(cornerRadius=4)
     .encode(
-        x=alt.X("funcao:N", title=None, sort=funcoes_top),
-        y=alt.Y("proporcao:Q", title="% do orçamento realizado", axis=alt.Axis(format="%")),
-        xOffset=alt.XOffset("ente:N", sort=entes_disponiveis),
+        y=alt.Y("funcao:N", title=None, sort=ordem_funcoes),
+        x=alt.X("proporcao:Q", title="% do orçamento realizado", axis=alt.Axis(format="%")),
+        yOffset=alt.YOffset("ente:N", sort=entes_disponiveis),
         color=alt.Color("ente:N", title="Ente", scale=escala_entes, sort=entes_disponiveis),
         tooltip=[
             alt.Tooltip("ente:N", title="Ente"),
@@ -165,12 +271,92 @@ grafico_funcao = (
             alt.Tooltip("realizado:Q", title="Valor realizado (R$)", format=",.2f"),
         ],
     )
-    .properties(height=420)
+    .properties(height=max(320, 32 * len(ordem_funcoes)))
 )
 st.altair_chart(grafico_funcao, width="stretch")
 
+# ---------------------------------------------------------------------------
+# Tabela completa
+# ---------------------------------------------------------------------------
 st.header("Tabela completa")
-tabela_exibicao = tabela_filtrada.copy()
+
+tabela_exibicao = tabela_funcoes_enriquecida.copy()
+tabela_exibicao["Status"] = tabela_exibicao["status_icone"] + " " + tabela_exibicao["status_rotulo"]
+tabela_exibicao["% do orçamento do ente"] = tabela_exibicao["proporcao"].map(formatar_pct)
+tabela_exibicao["% de execução"] = tabela_exibicao["pct_execucao"].map(formatar_pct)
 for coluna in ["previsao_inicial", "previsao_atualizada", "realizado"]:
     tabela_exibicao[coluna] = tabela_exibicao[coluna].map(formatar_reais)
-st.dataframe(tabela_exibicao, width="stretch", hide_index=True)
+
+tabela_exibicao = tabela_exibicao.rename(
+    columns={
+        "ente": "Ente",
+        "nivel": "Nível",
+        "funcao": "Função",
+        "previsao_inicial": "Previsão inicial (R$)",
+        "previsao_atualizada": "Previsão atualizada (R$)",
+        "realizado": "Realizado (R$)",
+    }
+)
+
+colunas_finais = [
+    "Status",
+    "Ente",
+    "Nível",
+    "Função",
+    "% do orçamento do ente",
+    "% de execução",
+    "Previsão inicial (R$)",
+    "Previsão atualizada (R$)",
+    "Realizado (R$)",
+]
+st.dataframe(tabela_exibicao[colunas_finais], width="stretch", hide_index=True)
+
+# ---------------------------------------------------------------------------
+# Metadados da base de dados
+# ---------------------------------------------------------------------------
+with st.expander("📋 Sobre esta base de dados (metadados e trajetória)"):
+    total_linhas_brutas = sum(m["linhas_brutas"] for m in metadados_entes)
+    periodo_texto = (
+        f"acumulado até o 6º bimestre (ano completo) de {exercicio}"
+        if modo_periodo != "Bimestre específico"
+        else f"{bimestre}º bimestre de {exercicio}"
+    )
+    st.markdown(
+        f"""
+**De onde veio → como foi tratado → como está sendo mostrado**
+
+1. **Fonte primária:** API pública do SICONFI (Sistema de Informações Contábeis e Fiscais do Setor
+   Público Brasileiro), Tesouro Nacional — endpoint `/rreo`, Anexo 02 (despesa por função de governo).
+   `https://apidatalake.tesouro.gov.br/ords/siconfi/tt/rreo`
+2. **Extração:** dados baixados por ente/exercício/bimestre e salvos em cache local (Parquet) —
+   ver tabela de sincronização abaixo.
+3. **Transformações aplicadas** (`transform/normalizar.py`):
+   - Filtro do rótulo `Total das Despesas Exceto Intra-Orçamentárias` (exclui transferências
+     internas do próprio ente, que duplicariam valores).
+   - Filtro das 28 funções oficiais de governo (Portaria MOG nº 42/1999), descartando linhas
+     de subfunção que vêm misturadas na mesma coluna da API.
+   - Pivot do formato "longo" da API (`conta` × `coluna` × `valor`) para uma linha por função,
+     com as colunas `previsao_inicial`, `previsao_atualizada` e `realizado`.
+   - "Realizado" usa despesas **liquidadas** (não apenas empenhadas) até o período.
+4. **Apresentação:** valores agregados por ente e por função, com percentuais calculados sobre
+   o total do orçamento do ente (não sobre o subconjunto filtrado na tela).
+
+**Período abrangido:** exercício {exercicio}, {periodo_texto}.
+
+**Registros processados:** {total_linhas_brutas:,} linhas brutas baixadas da API → {len(tabela):,}
+linhas na tabela normalizada (uma linha por ente × função de governo).
+
+**Filtros/exclusões realizadas:** despesas intra-orçamentárias e subfunções (item 3 acima).
+{"Sem dado declarado neste período: " + ", ".join(entes_sem_dado) + "." if entes_sem_dado else "Todos os entes do MVP tinham dado declarado neste período."}
+        """.strip()
+    )
+
+    st.markdown("**Última sincronização por ente (data do cache local):**")
+    tabela_sync = pd.DataFrame(metadados_entes)
+    tabela_sync["atualizado_em"] = tabela_sync["atualizado_em"].apply(
+        lambda dt: dt.strftime("%d/%m/%Y %H:%M") if pd.notna(dt) else "— (sem cache)"
+    )
+    tabela_sync = tabela_sync.rename(
+        columns={"ente": "Ente", "linhas_brutas": "Linhas brutas", "atualizado_em": "Última sincronização"}
+    )
+    st.dataframe(tabela_sync, width="stretch", hide_index=True)

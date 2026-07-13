@@ -4,6 +4,7 @@ A API pode ficar fora do ar (já houve manutenções emergenciais no Tesouro), e
 toda consulta é salva em cache local (Parquet) e lida de lá nas próximas vezes.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -14,10 +15,20 @@ from extract.config import BASE_URL, ANEXO_DESPESA_POR_FUNCAO
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 
 
-def _caminho_cache(id_ente: int, exercicio: int, bimestre: int, anexo: str) -> Path:
+def caminho_cache(id_ente: int, exercicio: int, bimestre: int, anexo: str = ANEXO_DESPESA_POR_FUNCAO) -> Path:
     anexo_slug = anexo.lower().replace(" ", "_")
     nome = f"rreo_{id_ente}_{exercicio}_{bimestre}_{anexo_slug}.parquet"
     return CACHE_DIR / nome
+
+
+def data_atualizacao(
+    id_ente: int, exercicio: int, bimestre: int, anexo: str = ANEXO_DESPESA_POR_FUNCAO
+) -> datetime | None:
+    """Data/hora em que este ente/período foi baixado pela última vez (mtime do cache)."""
+    caminho = caminho_cache(id_ente, exercicio, bimestre, anexo)
+    if not caminho.exists():
+        return None
+    return datetime.fromtimestamp(caminho.stat().st_mtime)
 
 
 def baixar_rreo(
@@ -32,7 +43,7 @@ def baixar_rreo(
     Se a API estiver fora do ar e não houver cache, propaga a exceção de rede;
     quem chama decide como sinalizar isso na interface (ex.: "dado indisponível").
     """
-    caminho = _caminho_cache(id_ente, exercicio, bimestre, anexo)
+    caminho = caminho_cache(id_ente, exercicio, bimestre, anexo)
 
     if caminho.exists() and not forcar_atualizacao:
         return pd.read_parquet(caminho)

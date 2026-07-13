@@ -6,3 +6,6 @@ data/raw/*.parquet
 data/processed/*.parquet
 .pytest_cache/
 .env
+streamlit.pid
+streamlit_out.log
+streamlit_err.log
