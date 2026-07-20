@@ -57,9 +57,34 @@ def baixar_rreo(
     return df
 
 
+def ultimo_bimestre_publicado(
+    id_ente: int, exercicio: int, anexo: str = ANEXO_DESPESA_POR_FUNCAO
+) -> int | None:
+    """Maior bimestre (1..6) que já tem dado publicado para o ente/exercício.
+
+    Testa do 6º para o 1º e retorna o primeiro com dado (cache local conta como
+    dado). Útil para o ano corrente, cujo fechamento ainda não saiu. Retorna None
+    se nenhum bimestre tiver dado (ex.: ano sem declaração ou API fora do ar).
+    """
+    for bimestre in range(6, 0, -1):
+        caminho = caminho_cache(id_ente, exercicio, bimestre, anexo)
+        if caminho.exists():
+            return bimestre
+        try:
+            if not _consultar_rreo_paginado(id_ente, exercicio, bimestre, anexo, limite_sonda=1).empty:
+                return bimestre
+        except Exception:
+            continue
+    return None
+
+
 def _consultar_rreo_paginado(
-    id_ente: int, exercicio: int, bimestre: int, anexo: str
+    id_ente: int, exercicio: int, bimestre: int, anexo: str, limite_sonda: int | None = None
 ) -> pd.DataFrame:
+    """Consulta o RREO na API. Se `limite_sonda` for dado, faz uma única chamada
+    leve (sem paginar) só para verificar se há dado — usado por
+    `ultimo_bimestre_publicado`.
+    """
     url = f"{BASE_URL}/rreo"
     params = {
         "id_ente": id_ente,
@@ -67,9 +92,14 @@ def _consultar_rreo_paginado(
         "nr_periodo": bimestre,
         "co_tipo_demonstrativo": "RREO",
         "no_anexo": anexo,
-        "limit": 5000,
+        "limit": limite_sonda if limite_sonda is not None else 5000,
         "offset": 0,
     }
+
+    if limite_sonda is not None:
+        resposta = requests.get(url, params=params, timeout=30)
+        resposta.raise_for_status()
+        return pd.DataFrame(resposta.json().get("items", []))
 
     registros = []
     while True:

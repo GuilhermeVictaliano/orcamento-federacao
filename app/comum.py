@@ -1,0 +1,125 @@
+"""Helpers compartilhados entre as páginas do painel (home + app/pages/*).
+
+Concentra formatação, carregamento cacheado de dados do SICONFI e enriquecimento
+de percentuais, para que cada página não reimplemente o mesmo código.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import pandas as pd
+import streamlit as st
+
+from app.cores import classificar_execucao
+from extract.config import ANEXO_RECEITA, ENTES_MVP
+from extract.rreo import baixar_rreo, data_atualizacao, ultimo_bimestre_publicado
+from transform.normalizar import normalizar_varios
+from transform.receita import normalizar_receita_varios
+
+
+def formatar_reais(valor) -> str:
+    if pd.isna(valor):
+        return "—"
+    texto = f"{valor:,.2f}"
+    return "R$ " + texto.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def formatar_pct(valor) -> str:
+    if pd.isna(valor):
+        return "—"
+    return f"{valor:.1%}"
+
+
+def enriquecer_com_percentuais(tabela: pd.DataFrame, totais_por_ente: pd.Series) -> pd.DataFrame:
+    """Adiciona: % do orçamento total do ente e % de execução (realizado / previsão atualizada),
+    já com status (ícone + rótulo) classificado a partir do % de execução.
+    """
+    df = tabela.copy()
+    df["proporcao"] = df.apply(
+        lambda linha: (linha["realizado"] / totais_por_ente[linha["ente"]]) if totais_por_ente.get(linha["ente"]) else None,
+        axis=1,
+    )
+    df["pct_execucao"] = df.apply(
+        lambda linha: (linha["realizado"] / linha["previsao_atualizada"]) if linha["previsao_atualizada"] else None,
+        axis=1,
+    )
+    status = df["pct_execucao"].map(classificar_execucao)
+    df["status_icone"] = status.map(lambda s: s["icone"])
+    df["status_rotulo"] = status.map(lambda s: s["rotulo"])
+    return df
+
+
+@st.cache_data(show_spinner="Carregando dados do SICONFI...")
+def carregar_dados(exercicio: int, bimestre: int):
+    """Baixa (ou lê do cache local) o RREO-Anexo 02 de todos os entes do MVP e normaliza.
+
+    Retorna a tabela normalizada, a lista de entes sem dado declarado no período e
+    metadados de cada ente (linhas brutas baixadas, data da última sincronização).
+    A API do SICONFI já teve instabilidades; se uma chamada falhar, o ente entra
+    na lista de "sem dado" em vez de derrubar o app inteiro.
+    """
+    dados_por_ente = {}
+    entes_sem_dado = []
+    metadados_entes = []
+
+    for chave, info in ENTES_MVP.items():
+        try:
+            df_bruto = baixar_rreo(id_ente=info["id_ente"], exercicio=exercicio, bimestre=bimestre)
+        except Exception:
+            df_bruto = pd.DataFrame()
+
+        if df_bruto.empty:
+            entes_sem_dado.append(info["nome"])
+
+        dados_por_ente[chave] = {"df": df_bruto, "nome": info["nome"], "nivel": info["nivel"]}
+        metadados_entes.append(
+            {
+                "ente": info["nome"],
+                "linhas_brutas": len(df_bruto),
+                "atualizado_em": data_atualizacao(info["id_ente"], exercicio, bimestre),
+            }
+        )
+
+    tabela = normalizar_varios(dados_por_ente)
+    return tabela, entes_sem_dado, metadados_entes
+
+
+@st.cache_data(show_spinner="Carregando receita do SICONFI...")
+def carregar_receita(exercicio: int, bimestre: int):
+    """Baixa (ou lê do cache) o RREO-Anexo 01 (receita) de todos os entes e normaliza.
+
+    Retorna a tabela de receita por categoria e a lista de entes sem dado no período.
+    Mesmo padrão resiliente de `carregar_dados`: falha de um ente não derruba o app.
+    """
+    dados_por_ente = {}
+    entes_sem_dado = []
+
+    for chave, info in ENTES_MVP.items():
+        try:
+            df_bruto = baixar_rreo(
+                id_ente=info["id_ente"], exercicio=exercicio, bimestre=bimestre, anexo=ANEXO_RECEITA
+            )
+        except Exception:
+            df_bruto = pd.DataFrame()
+
+        if df_bruto.empty:
+            entes_sem_dado.append(info["nome"])
+
+        dados_por_ente[chave] = {"df": df_bruto, "nome": info["nome"], "nivel": info["nivel"]}
+
+    tabela = normalizar_receita_varios(dados_por_ente)
+    return tabela, entes_sem_dado
+
+
+@st.cache_data(show_spinner=False)
+def bimestre_recente_uniao(exercicio: int) -> int:
+    """Último bimestre publicado pela União no exercício (fallback = 6).
+
+    Serve de default sensato para o ano corrente, cujo fechamento (6º bimestre)
+    ainda não saiu. Cacheado para não sondar a API a cada rerun.
+    """
+    id_uniao = ENTES_MVP["uniao"]["id_ente"]
+    bimestre = ultimo_bimestre_publicado(id_uniao, exercicio)
+    return bimestre if bimestre is not None else 6

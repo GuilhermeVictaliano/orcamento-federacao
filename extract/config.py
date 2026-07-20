@@ -14,6 +14,10 @@ ENTES_MVP = {
 }
 
 ANEXO_DESPESA_POR_FUNCAO = "RREO-Anexo 02"
+ANEXO_RECEITA = "RREO-Anexo 01"  # Balanço Orçamentário (receita realizada)
+ANEXO_RESULTADO_PRIMARIO = "RREO-Anexo 06"  # Resultado Primário/Nominal
+ANEXO_RESTOS_A_PAGAR = "RREO-Anexo 07"  # Restos a pagar por Poder e órgão
+ANEXO_PREVIDENCIA = "RREO-Anexo 14"  # Resultado previdenciário (RPPS)
 
 # Nomes de coluna do RREO-Anexo 02 usados na transformação (previsto x executado).
 # "Realizado" usa despesas LIQUIDADAS (não apenas empenhadas), por ser a medida
@@ -22,3 +26,10 @@ ANEXO_DESPESA_POR_FUNCAO = "RREO-Anexo 02"
 COLUNA_PREVISAO_INICIAL = "DOTAÇÃO INICIAL"
 COLUNA_PREVISAO_ATUALIZADA = "DOTAÇÃO ATUALIZADA (a)"
 COLUNA_REALIZADO = "DESPESAS LIQUIDADAS ATÉ O BIMESTRE (d)"
+
+# Nomes de coluna do RREO-Anexo 01 (Balanço Orçamentário), lado da RECEITA.
+# "Realizada" é o acumulado arrecadado até o bimestre — equivalente ao "faturamento"
+# do ente no período.
+COLUNA_RECEITA_PREVISAO_INICIAL = "PREVISÃO INICIAL"
+COLUNA_RECEITA_PREVISAO_ATUALIZADA = "PREVISÃO ATUALIZADA (a)"
+COLUNA_RECEITA_REALIZADA = "Até o Bimestre (c)"

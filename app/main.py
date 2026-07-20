@@ -12,90 +12,28 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from app.comum import (
+    bimestre_recente_uniao,
+    carregar_dados,
+    enriquecer_com_percentuais,
+    formatar_pct,
+    formatar_reais,
+)
 from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES, classificar_execucao
-from extract.config import ENTES_MVP
-from extract.rreo import baixar_rreo, data_atualizacao
-from transform.normalizar import normalizar_varios
+from extract.periodos import anos_disponiveis
 
 st.set_page_config(page_title="Orçamento Público: União x Estado x Municípios", layout="wide")
 
 
-def formatar_reais(valor) -> str:
-    if pd.isna(valor):
-        return "—"
-    texto = f"{valor:,.2f}"
-    return "R$ " + texto.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def formatar_pct(valor) -> str:
-    if pd.isna(valor):
-        return "—"
-    return f"{valor:.1%}"
-
-
-def enriquecer_com_percentuais(tabela: pd.DataFrame, totais_por_ente: pd.Series) -> pd.DataFrame:
-    """Adiciona: % do orçamento total do ente e % de execução (realizado / previsão atualizada),
-    já com status (ícone + rótulo) classificado a partir do % de execução.
-    """
-    df = tabela.copy()
-    df["proporcao"] = df.apply(
-        lambda linha: (linha["realizado"] / totais_por_ente[linha["ente"]]) if totais_por_ente.get(linha["ente"]) else None,
-        axis=1,
-    )
-    df["pct_execucao"] = df.apply(
-        lambda linha: (linha["realizado"] / linha["previsao_atualizada"]) if linha["previsao_atualizada"] else None,
-        axis=1,
-    )
-    status = df["pct_execucao"].map(classificar_execucao)
-    df["status_icone"] = status.map(lambda s: s["icone"])
-    df["status_rotulo"] = status.map(lambda s: s["rotulo"])
-    return df
-
-
-@st.cache_data(show_spinner="Carregando dados do SICONFI...")
-def carregar_dados(exercicio: int, bimestre: int):
-    """Baixa (ou lê do cache local) o RREO de todos os entes do MVP e normaliza.
-
-    Retorna a tabela normalizada, a lista de entes sem dado declarado no período e
-    metadados de cada ente (linhas brutas baixadas, data da última sincronização).
-    A API do SICONFI já teve instabilidades; se uma chamada falhar, o ente entra
-    na lista de "sem dado" em vez de derrubar o app inteiro.
-    """
-    dados_por_ente = {}
-    entes_sem_dado = []
-    metadados_entes = []
-
-    for chave, info in ENTES_MVP.items():
-        try:
-            df_bruto = baixar_rreo(id_ente=info["id_ente"], exercicio=exercicio, bimestre=bimestre)
-        except Exception:
-            df_bruto = pd.DataFrame()
-
-        if df_bruto.empty:
-            entes_sem_dado.append(info["nome"])
-
-        dados_por_ente[chave] = {"df": df_bruto, "nome": info["nome"], "nivel": info["nivel"]}
-        metadados_entes.append(
-            {
-                "ente": info["nome"],
-                "linhas_brutas": len(df_bruto),
-                "atualizado_em": data_atualizacao(info["id_ente"], exercicio, bimestre),
-            }
-        )
-
-    tabela = normalizar_varios(dados_por_ente)
-    return tabela, entes_sem_dado, metadados_entes
-
-
 st.title("Orçamento Público: União x Estado x Municípios")
 st.caption(
-    "Comparativo do exercício corrente (previsto x executado) entre os três níveis da federação, "
+    "Comparativo entre os três níveis da federação (previsto x executado), "
     "com base no RREO do SICONFI/Tesouro Nacional."
 )
 st.info(
-    "Esta visão cobre apenas o **exercício corrente** (previsão da LOA + execução). "
-    "O planejamento plurianual (PPA) de cada ente não está no SICONFI e fica fora do escopo "
-    "deste painel — veja o README para detalhes.",
+    "Esta visão mostra a **despesa por função de governo** (previsão da LOA + execução) de um "
+    "exercício. A série cobre de 2015 ao ano corrente; use as demais páginas na barra lateral "
+    "para receita, período de governo, saúde fiscal, Poderes e contratos.",
     icon="ℹ️",
 )
 
@@ -104,18 +42,24 @@ modo_periodo = st.radio(
     ["Ano completo (acumulado)", "Bimestre específico"],
     horizontal=True,
     help="O RREO é bimestral e cada bimestre já traz o valor acumulado desde o início do ano. "
-    "\"Ano completo\" usa o acumulado até o 6º bimestre (fechamento do exercício).",
+    "\"Ano completo\" usa o acumulado até o último bimestre publicado do exercício.",
 )
 
+anos = anos_disponiveis()
 col_ano, col_bimestre = st.columns(2)
 with col_ano:
-    exercicio = st.selectbox("Exercício", options=[2024, 2023, 2022], index=0)
+    exercicio = st.selectbox("Exercício", options=anos, index=0)
+
+# O ano corrente ainda não fechou o 6º bimestre: usar o último publicado como teto.
+ultimo_bimestre = bimestre_recente_uniao(exercicio)
 with col_bimestre:
     if modo_periodo == "Bimestre específico":
-        bimestre = st.selectbox("Bimestre (RREO)", options=[1, 2, 3, 4, 5, 6], index=5)
+        opcoes_bimestre = list(range(1, ultimo_bimestre + 1))
+        bimestre = st.selectbox("Bimestre (RREO)", options=opcoes_bimestre, index=len(opcoes_bimestre) - 1)
     else:
-        bimestre = 6
-        st.caption("Usando o acumulado até o 6º bimestre (equivale ao ano completo).")
+        bimestre = ultimo_bimestre
+        rotulo = "6º bimestre (fechamento)" if ultimo_bimestre == 6 else f"{ultimo_bimestre}º bimestre (último publicado)"
+        st.caption(f"Usando o acumulado até o {rotulo}.")
 
 tabela, entes_sem_dado, metadados_entes = carregar_dados(exercicio, bimestre)
 
