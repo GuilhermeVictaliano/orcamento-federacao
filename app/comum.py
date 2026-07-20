@@ -13,9 +13,10 @@ import pandas as pd
 import streamlit as st
 
 from app.cores import classificar_execucao
-from extract.config import ANEXO_RECEITA, ENTES_MVP
+from extract.config import ANEXO_RECEITA, ANEXO_RESTOS_A_PAGAR, ENTES_MVP
 from extract.rreo import baixar_rreo, data_atualizacao, ultimo_bimestre_publicado
 from transform.normalizar import normalizar_varios
+from transform.poderes import normalizar_restos_varios
 from transform.receita import normalizar_receita_varios
 
 
@@ -110,6 +111,33 @@ def carregar_receita(exercicio: int, bimestre: int):
         dados_por_ente[chave] = {"df": df_bruto, "nome": info["nome"], "nivel": info["nivel"]}
 
     tabela = normalizar_receita_varios(dados_por_ente)
+    return tabela, entes_sem_dado
+
+
+@st.cache_data(show_spinner="Carregando restos a pagar por Poder...")
+def carregar_restos_poder(exercicio: int, bimestre: int):
+    """Baixa (ou lê do cache) o RREO-Anexo 07 de todos os entes e normaliza por Poder.
+
+    Retorna a tabela [ente, nivel, poder, restos_a_pagar] e a lista de entes sem dado.
+    Mesmo padrão resiliente das demais cargas.
+    """
+    dados_por_ente = {}
+    entes_sem_dado = []
+
+    for chave, info in ENTES_MVP.items():
+        try:
+            df_bruto = baixar_rreo(
+                id_ente=info["id_ente"], exercicio=exercicio, bimestre=bimestre, anexo=ANEXO_RESTOS_A_PAGAR
+            )
+        except Exception:
+            df_bruto = pd.DataFrame()
+
+        if df_bruto.empty:
+            entes_sem_dado.append(info["nome"])
+
+        dados_por_ente[chave] = {"df": df_bruto, "nome": info["nome"], "nivel": info["nivel"]}
+
+    tabela = normalizar_restos_varios(dados_por_ente)
     return tabela, entes_sem_dado
 
 
