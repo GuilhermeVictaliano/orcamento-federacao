@@ -50,14 +50,23 @@ autenticação.
 
 ## De onde vêm os dados
 
-Fonte única: a **API pública do SICONFI** (Sistema de Informações Contábeis
+Fonte principal: a **API pública do SICONFI** (Sistema de Informações Contábeis
 e Fiscais do Setor Público Brasileiro), mantida pelo Tesouro Nacional —
 `https://apidatalake.tesouro.gov.br/ords/siconfi/tt/`. É o que padroniza o
 leiaute entre União, estados e municípios e torna a comparação possível.
 
-Usamos o endpoint `/rreo` (Relatório Resumido da Execução Orçamentária,
-Anexo 02 — despesa por função de governo), que traz previsão orçamentária e
-execução no mesmo relatório, bimestral.
+Usamos o endpoint `/rreo` (Relatório Resumido da Execução Orçamentária), em
+vários anexos, cobrindo **de 2015 ao ano corrente**:
+
+| Anexo | O que traz | Página |
+|---|---|---|
+| Anexo 02 | Despesa por função de governo (previsto x executado) | Home + Período de governo + Saúde fiscal |
+| Anexo 01 | Receita realizada (Balanço Orçamentário) | Receita + Saúde fiscal |
+| Anexo 07 | Restos a pagar por Poder | Poderes |
+
+Fonte complementar: o **PNCP** (Portal Nacional de Contratações Públicas),
+`https://pncp.gov.br/api/consulta/v1/contratos`, para a aba de **Contratos**
+(auditoria pelo cidadão). Só permite consulta por CNPJ de órgão.
 
 **Atenção ao formato real da resposta:** a API devolve os dados em formato
 "longo" — cada linha combina `conta` (função/subfunção de governo) × `coluna`
@@ -87,13 +96,24 @@ Entes cobertos no MVP (códigos IBGE em `extract/config.py`):
 
 ## Limitações conhecidas
 
-1. **Não cobre o PPA (Plano Plurianual).** O SICONFI só cobre o **exercício
-   corrente** (previsão da LOA do ano + execução). O planejamento de médio
-   prazo (metas de 4 anos por programa) fica em fontes separadas por ente —
-   no nível federal, no SIOP; em estados e municípios, geralmente só no
-   portal de cada um, muitas vezes em PDF não estruturado. Isso é fase 2,
-   fora do escopo deste MVP. A interface deixa isso explícito.
-2. **A API do SICONFI pode ficar instável.** Já houve manutenções
+1. **Não cobre o PPA (Plano Plurianual).** O SICONFI cobre a execução
+   orçamentária anual (previsão da LOA + execução), agora com série histórica
+   de 2015 ao ano corrente. O planejamento de médio prazo (metas de 4 anos por
+   programa) fica em fontes separadas por ente — no nível federal, no SIOP; em
+   estados e municípios, geralmente só no portal de cada um, muitas vezes em PDF
+   não estruturado. Fora do escopo por ora.
+2. **Gastos por Poder = restos a pagar.** O RREO não publica a despesa total
+   executada por Poder; o único recorte por Poder uniforme entre entes é o de
+   restos a pagar (Anexo 07). A aba de Poderes deixa isso explícito.
+3. **Precatórios não têm API pública consolidada.** O CNJ só publica painel
+   visual. No RREO eles aparecem diluídos em "Encargos Especiais", usado como
+   *proxy* de rigidez na aba de Saúde fiscal — não é o estoque exato.
+4. **Contratos (PNCP) têm cobertura parcial.** A consulta é por CNPJ de órgão;
+   um ente grande tem muitos órgãos e a adesão ao PNCP é parcial. A lista não é
+   exaustiva e não carrega função de governo (ligação com despesa é aproximada).
+5. **Valores são nominais.** As comparações históricas não são corrigidas por
+   inflação — a interface avisa onde isso importa.
+6. **A API do SICONFI pode ficar instável.** Já houve manutenções
    emergenciais no Tesouro. Por isso toda consulta é persistida em cache
    local (Parquet, em `data/raw/`) e o app lê do cache — se a API cair, o
    app continua funcionando com o último dado baixado. Se um ente falhar e
@@ -106,18 +126,23 @@ Entes cobertos no MVP (códigos IBGE em `extract/config.py`):
 ## Estrutura do projeto
 
 ```
-extract/      # chamadas à API do SICONFI + cache local em Parquet
-transform/    # normalização do formato "longo" da API numa tabela comparável
-app/          # painel Streamlit (seletores, gráficos, tabela)
-data/raw/     # cache local (gitignored)
+extract/      # SICONFI (rreo, periodos, config) + PNCP (pncp) + cache Parquet
+transform/    # normalizar (Anexo 02), receita (01), fiscal (funções),
+              #   poderes (07), contratos (PNCP) — formato "longo" -> tabelas
+app/
+  main.py     # home: despesa por função (visão geral)
+  comum.py    # loaders cacheados + helpers compartilhados entre páginas
+  cores.py    # paleta dos entes + status de execução
+  pages/      # 2_Periodo_de_governo, 3_Saude_fiscal, 4_Poderes,
+              #   5_Contratos, 6_Receita
+data/raw/     # cache local (gitignored), inclui data/raw/pncp/
 tests/        # testes de extract/ e transform/
 ```
 
-## Fase 2 (não implementada, só prevista)
+## Ideias de evolução
 
-- Ingestão do PPA por ente (raspagem dos portais estaduais/municipais,
-  tratamento de PDF).
-- Série histórica multi-ano via [Base dos Dados](https://basedosdados.org/)
-  (BigQuery), para cruzamentos de longo prazo sem depender só da API do
-  Tesouro.
-- Cobertura de mais municípios.
+- Descer ao nível de **subfunção** no Anexo 02 para isolar precatórios
+  ("Sentenças Judiciais") dentro de Encargos Especiais.
+- Correção por inflação (IPCA) nas séries históricas.
+- Execução federal por Poder via Portal da Transparência (complementa Anexo 07).
+- Ingestão do PPA por ente e cobertura de mais municípios.
