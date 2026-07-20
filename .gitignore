@@ -9,3 +9,4 @@ data/processed/*.parquet
 streamlit.pid
 streamlit_out.log
 streamlit_err.log
+data/raw/pncp/

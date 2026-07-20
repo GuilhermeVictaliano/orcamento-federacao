@@ -141,6 +141,23 @@ def carregar_restos_poder(exercicio: int, bimestre: int):
     return tabela, entes_sem_dado
 
 
+@st.cache_data(show_spinner="Consultando contratos no PNCP...")
+def carregar_contratos(cnpj: str, ano: int):
+    """Baixa (ou lê do cache) e normaliza os contratos de um órgão (CNPJ) no ano.
+
+    Retorna (tabela_normalizada, erro) — `erro` é None em caso de sucesso ou uma
+    mensagem curta se a consulta ao PNCP falhar.
+    """
+    from extract.pncp import baixar_contratos
+    from transform.contratos import normalizar_contratos
+
+    try:
+        bruto = baixar_contratos(cnpj=cnpj, ano=ano)
+    except Exception as exc:
+        return normalizar_contratos(pd.DataFrame()), f"Falha ao consultar o PNCP: {type(exc).__name__}"
+    return normalizar_contratos(bruto), None
+
+
 @st.cache_data(show_spinner=False)
 def bimestre_recente_uniao(exercicio: int) -> int:
     """Último bimestre publicado pela União no exercício (fallback = 6).
