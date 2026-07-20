@@ -123,3 +123,52 @@ def bimestre_recente_uniao(exercicio: int) -> int:
     id_uniao = ENTES_MVP["uniao"]["id_ente"]
     bimestre = ultimo_bimestre_publicado(id_uniao, exercicio)
     return bimestre if bimestre is not None else 6
+
+
+@st.cache_data(show_spinner="Montando série histórica de despesa...")
+def serie_anual_despesa(anos: tuple[int, ...]) -> pd.DataFrame:
+    """Total de despesa por ente para cada ano da série.
+
+    Para anos fechados usa o acumulado do 6º bimestre; para o ano corrente usa o
+    último bimestre publicado (marcado como `parcial=True`, pois não é comparável
+    a um ano inteiro). Valores são NOMINAIS (não ajustados por inflação).
+    """
+    linhas = []
+    for ano in anos:
+        bim = bimestre_recente_uniao(ano)
+        tabela, _, _ = carregar_dados(ano, bim)
+        if tabela.empty:
+            continue
+        agg = tabela.groupby(["ente", "nivel"], as_index=False)[
+            ["previsao_inicial", "previsao_atualizada", "realizado"]
+        ].sum()
+        agg["ano"] = ano
+        agg["bimestre"] = bim
+        agg["parcial"] = bim < 6
+        linhas.append(agg)
+    colunas = ["ente", "nivel", "ano", "bimestre", "parcial", "previsao_inicial", "previsao_atualizada", "realizado"]
+    if not linhas:
+        return pd.DataFrame(columns=colunas)
+    return pd.concat(linhas, ignore_index=True)[colunas]
+
+
+@st.cache_data(show_spinner="Montando série histórica de receita...")
+def serie_anual_receita(anos: tuple[int, ...]) -> pd.DataFrame:
+    """Total de receita realizada por ente para cada ano (mesma lógica de série da despesa)."""
+    from transform.receita import totais_receita_por_ente
+
+    linhas = []
+    for ano in anos:
+        bim = bimestre_recente_uniao(ano)
+        tabela, _ = carregar_receita(ano, bim)
+        if tabela.empty:
+            continue
+        agg = totais_receita_por_ente(tabela)
+        agg["ano"] = ano
+        agg["bimestre"] = bim
+        agg["parcial"] = bim < 6
+        linhas.append(agg)
+    colunas = ["ente", "nivel", "ano", "bimestre", "parcial", "previsao_inicial", "previsao_atualizada", "realizada"]
+    if not linhas:
+        return pd.DataFrame(columns=colunas)
+    return pd.concat(linhas, ignore_index=True)[colunas]
