@@ -152,6 +152,39 @@ def serie_anual_despesa(anos: tuple[int, ...]) -> pd.DataFrame:
     return pd.concat(linhas, ignore_index=True)[colunas]
 
 
+@st.cache_data(show_spinner="Montando série de pesos por função...")
+def serie_peso_funcao(anos: tuple[int, ...], funcoes: tuple[str, ...]) -> pd.DataFrame:
+    """Fatia (%) da despesa de cada ente nas funções dadas, ano a ano.
+
+    Retorna: ente, nivel, ano, funcao, realizado, total_ente, peso, parcial.
+    Usa o cache de despesa (Anexo 02) já aquecido pela série histórica.
+    """
+    colunas = ["ente", "nivel", "ano", "funcao", "realizado", "total_ente", "peso", "parcial"]
+    linhas = []
+    for ano in anos:
+        bim = bimestre_recente_uniao(ano)
+        tabela, _, _ = carregar_dados(ano, bim)
+        if tabela.empty:
+            continue
+        total = tabela.groupby("ente")["realizado"].sum()
+        sub = (
+            tabela[tabela["funcao"].isin(funcoes)]
+            .groupby(["ente", "nivel", "funcao"], as_index=False)["realizado"].sum()
+        )
+        if sub.empty:
+            continue
+        sub["ano"] = ano
+        sub["total_ente"] = sub["ente"].map(total)
+        sub["peso"] = sub.apply(
+            lambda r: (r["realizado"] / r["total_ente"]) if r["total_ente"] else None, axis=1
+        )
+        sub["parcial"] = bim < 6
+        linhas.append(sub)
+    if not linhas:
+        return pd.DataFrame(columns=colunas)
+    return pd.concat(linhas, ignore_index=True)[colunas]
+
+
 @st.cache_data(show_spinner="Montando série histórica de receita...")
 def serie_anual_receita(anos: tuple[int, ...]) -> pd.DataFrame:
     """Total de receita realizada por ente para cada ano (mesma lógica de série da despesa)."""
