@@ -17,8 +17,9 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from app.comum import formatar_reais, serie_anual_despesa, serie_anual_receita
+from app.comum import fatores_ipca, formatar_reais, serie_anual_despesa, serie_anual_receita
 from app.cores import ORDEM_ENTES
+from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis, mandato_do_ano, rotulo_mandato
 
 st.set_page_config(page_title="Período de governo", layout="wide")
@@ -35,7 +36,18 @@ with col_ente:
 with col_metrica:
     metrica = st.radio("Métrica", ["Despesa realizada", "Receita realizada"], horizontal=True)
 
-anos = tuple(anos_disponiveis())
+lista_anos = anos_disponiveis()
+ano_base = lista_anos[0]  # ano mais recente = base da correção
+correcao = st.radio(
+    "Valores",
+    ["Nominais", f"Reais (corrigidos por IPCA, R$ de {ano_base})"],
+    horizontal=True,
+    help="'Reais' deflaciona cada ano pelo IPCA/IBGE, deixando todos em reais do ano-base — "
+    "é a forma correta de comparar anos distantes sem o efeito da inflação.",
+)
+usar_real = correcao.startswith("Reais")
+
+anos = tuple(lista_anos)
 
 if metrica == "Despesa realizada":
     serie = serie_anual_despesa(anos)
@@ -57,13 +69,21 @@ serie_ente["ano_no_mandato"] = serie_ente["ano"].map(
     lambda a: (a - mandato_do_ano(a, nivel)[0] + 1) if mandato_do_ano(a, nivel) else None
 )
 serie_ente["valor"] = serie_ente[coluna_valor]
+if usar_real:
+    fatores = fatores_ipca(ano_base)
+    serie_ente["valor"] = serie_ente.apply(
+        lambda r: deflacionar(r["valor"], int(r["ano"]), fatores), axis=1
+    )
 serie_ente = serie_ente.sort_values("ano")
 
 tem_parcial = bool(serie_ente["parcial"].any())
 
+if usar_real:
+    aviso_valor = f"Valores **reais** corrigidos pelo IPCA/IBGE, em reais de **{ano_base}** — comparáveis entre anos."
+else:
+    aviso_valor = "⚠️ Valores **nominais** (não corrigidos por inflação) — comparações entre anos distantes sofrem efeito de preços. Use o seletor acima para ver em valores reais."
 st.info(
-    "⚠️ Valores **nominais** (não corrigidos por inflação) — comparações entre anos distantes "
-    "sofrem efeito de preços."
+    aviso_valor
     + (" O ano corrente é **parcial** (últimos bimestres ainda não publicados) e aparece destacado."
        if tem_parcial else ""),
     icon="ℹ️",

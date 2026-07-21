@@ -159,6 +159,17 @@ def carregar_contratos(cnpj: str, ano: int):
 
 
 @st.cache_data(show_spinner=False)
+def fatores_ipca(ano_base: int) -> dict:
+    """Fatores de deflação (nominal→real em reais do ano-base) por ano, via IPCA/IBGE.
+
+    Cacheado para não consultar a SIDRA a cada rerun.
+    """
+    from extract.inflacao import fatores_para_base, indice_ipca_anual
+
+    return fatores_para_base(indice_ipca_anual(ano_base), ano_base)
+
+
+@st.cache_data(show_spinner=False)
 def bimestre_recente_uniao(exercicio: int) -> int:
     """Último bimestre publicado pela União no exercício (fallback = 6).
 
