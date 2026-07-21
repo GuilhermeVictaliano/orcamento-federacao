@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import pandas as pd
 import streamlit as st
 
-from app.comum import carregar_contratos, formatar_reais
+from app.comum import botao_download_csv, carregar_contratos, fatores_ipca, formatar_reais
+from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis
 from extract.pncp import ORGAOS_CONHECIDOS
 from transform.contratos import resumo_contratos
@@ -63,6 +64,16 @@ if erro:
 if tabela.empty:
     st.warning(f"Nenhum contrato encontrado para o CNPJ {cnpj} em {ano} (pode ser adesão parcial ao PNCP).", icon="⚠️")
     st.stop()
+
+ano_base = anos_disponiveis()[0]
+if ano < ano_base and st.checkbox(
+    f"Corrigir valores por IPCA (mostrar em reais de {ano_base})",
+    help="Deflaciona os valores do contrato para reais de hoje — útil para comparar contratos de anos diferentes.",
+):
+    fatores = fatores_ipca(ano_base)
+    for col in ["valor_global", "valor_inicial"]:
+        tabela[col] = tabela[col].map(lambda v: deflacionar(v, ano, fatores))
+    st.caption(f"💡 Valores corrigidos pelo IPCA para reais de {ano_base}.")
 
 # ---------------------------------------------------------------------------
 # Resumo
@@ -119,6 +130,7 @@ st.dataframe(
         "Objeto": st.column_config.TextColumn("Objeto", width="large"),
     },
 )
+botao_download_csv(filtrada, f"contratos_{cnpj}_{ano}.csv")
 st.caption(
     "Dica de auditoria: ordene por valor, compare o objeto com o preço, procure fornecedores "
     "recorrentes e abra o registro oficial no PNCP para ver empenhos, aditivos e documentos."

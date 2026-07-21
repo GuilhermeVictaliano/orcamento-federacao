@@ -14,6 +14,7 @@ import streamlit as st
 
 from app.comum import (
     bimestre_recente_uniao,
+    botao_download_csv,
     carregar_dados,
     enriquecer_com_percentuais,
     formatar_pct,
@@ -254,6 +255,7 @@ colunas_finais = [
     "Realizado (R$)",
 ]
 st.dataframe(tabela_exibicao[colunas_finais], width="stretch", hide_index=True)
+botao_download_csv(tabela_exibicao[colunas_finais], f"despesa_por_funcao_{exercicio}_b{bimestre}.csv")
 
 # ---------------------------------------------------------------------------
 # Metadados da base de dados

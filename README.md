@@ -93,6 +93,8 @@ Entes cobertos no MVP (códigos IBGE em `extract/config.py`):
 | São Paulo (capital) | municipal | 3550308 |
 | Sorocaba | municipal | 3552205 |
 | Campinas | municipal | 3509502 |
+| Guarulhos | municipal | 3518800 |
+| Santos | municipal | 3548500 |
 
 ## Limitações conhecidas
 

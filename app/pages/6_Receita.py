@@ -16,6 +16,7 @@ import streamlit as st
 
 from app.comum import (
     bimestre_recente_uniao,
+    botao_download_csv,
     carregar_dados,
     carregar_receita,
     formatar_reais,
@@ -179,7 +180,6 @@ tab = tab.rename(
         "realizada": "Realizada (R$)",
     }
 )
-st.dataframe(
-    tab[["Ente", "Nível", "Categoria", "Previsão inicial (R$)", "Previsão atualizada (R$)", "Realizada (R$)"]],
-    width="stretch", hide_index=True,
-)
+colunas_tab = ["Ente", "Nível", "Categoria", "Previsão inicial (R$)", "Previsão atualizada (R$)", "Realizada (R$)"]
+st.dataframe(tab[colunas_tab], width="stretch", hide_index=True)
+botao_download_csv(tab[colunas_tab], f"receita_por_categoria_{exercicio}_b{bimestre}.csv")

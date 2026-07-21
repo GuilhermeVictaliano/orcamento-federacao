@@ -11,3 +11,4 @@ streamlit_out.log
 streamlit_err.log
 data/raw/pncp/
 data/raw/ipca_indice_anual.parquet
+.streamlit/secrets.toml

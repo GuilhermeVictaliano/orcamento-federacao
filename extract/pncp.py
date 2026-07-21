@@ -27,6 +27,7 @@ ORGAOS_CONHECIDOS = {
     "São Paulo (capital) — Município": "46395000000139",
     "Campinas — Município": "51885242000140",
     "Sorocaba — Município": "46634044000174",
+    "Guarulhos — Município": "46319000000150",
     "Estado de SP — Sec. da Fazenda e Planejamento": "46377222000129",
 }
 

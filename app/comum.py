@@ -33,6 +33,12 @@ def formatar_pct(valor) -> str:
     return f"{valor:.1%}"
 
 
+def botao_download_csv(df: pd.DataFrame, nome_arquivo: str, label: str = "⬇️ Baixar CSV") -> None:
+    """Botão de download da tabela em CSV (utf-8-sig, separador ';' — abre bem no Excel BR)."""
+    csv = df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+    st.download_button(label, data=csv, file_name=nome_arquivo, mime="text/csv")
+
+
 def enriquecer_com_percentuais(tabela: pd.DataFrame, totais_por_ente: pd.Series) -> pd.DataFrame:
     """Adiciona: % do orçamento total do ente e % de execução (realizado / previsão atualizada),
     já com status (ícone + rótulo) classificado a partir do % de execução.

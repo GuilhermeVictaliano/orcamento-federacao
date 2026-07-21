@@ -8,7 +8,9 @@ import pandas as pd
 
 from extract.config import ENTES_MVP
 
-_PALETA_CATEGORICA = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7"]
+# Paleta categórica (contraste + separação para daltonismo). Estendida para
+# comportar mais entes; cores adicionais escolhidas em matizes distintos.
+_PALETA_CATEGORICA = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#c65999", "#8c613c"]
 
 ORDEM_ENTES = [info["nome"] for info in ENTES_MVP.values()]
 

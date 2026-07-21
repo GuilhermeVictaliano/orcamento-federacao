@@ -11,6 +11,8 @@ ENTES_MVP = {
     "sp_capital": {"id_ente": 3550308, "nivel": "municipal", "nome": "São Paulo (capital)"},
     "sorocaba": {"id_ente": 3552205, "nivel": "municipal", "nome": "Sorocaba"},
     "campinas": {"id_ente": 3509502, "nivel": "municipal", "nome": "Campinas"},
+    "guarulhos": {"id_ente": 3518800, "nivel": "municipal", "nome": "Guarulhos"},
+    "santos": {"id_ente": 3548500, "nivel": "municipal", "nome": "Santos"},
 }
 
 ANEXO_DESPESA_POR_FUNCAO = "RREO-Anexo 02"
