@@ -21,11 +21,15 @@ from app.comum import (
     bimestre_recente_uniao,
     carregar_dados,
     carregar_receita,
+    fatores_ipca,
     formatar_pct,
     formatar_reais,
+    serie_anual_despesa,
+    serie_anual_receita,
     serie_peso_funcao,
 )
 from app.cores import CORES_POR_ENTE, ORDEM_ENTES
+from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis
 from transform.fiscal import (
     FUNCAO_ENCARGOS,
@@ -141,6 +145,72 @@ else:
         .properties(height=380)
     )
     st.altair_chart(grafico, width="stretch")
+
+# ---------------------------------------------------------------------------
+# 4. Resultado orçamentário ao longo do tempo (receita − despesa, real)
+# ---------------------------------------------------------------------------
+st.header("Resultado orçamentário ao longo dos anos")
+st.caption(
+    "Trajetória de receita, despesa e saldo por ano. Anos fechados usam o 6º bimestre; "
+    "o ano corrente é parcial."
+)
+st.caption(
+    "⚠️ **Leitura importante:** a receita aqui inclui **operações de crédito** (empréstimos), "
+    "então o resultado *orçamentário* tende a ser positivo mesmo com aperto real. O indicador de "
+    "aperto de fato é o resultado **primário** (que exclui financiamento) — não isolado nesta visão."
+)
+
+ano_base_hist = anos[0]
+correcao_hist = st.radio(
+    "Valores",
+    ["Nominais", f"Reais (IPCA, R$ de {ano_base_hist})"],
+    horizontal=True,
+    key="correcao_hist",
+)
+usar_real_hist = correcao_hist.startswith("Reais")
+
+ente_hist = st.selectbox("Ente", options=ORDEM_ENTES, index=0, key="ente_hist")
+serie_d = serie_anual_despesa(tuple(anos))
+serie_r = serie_anual_receita(tuple(anos))
+sd = serie_d[serie_d["ente"] == ente_hist][["ano", "realizado", "parcial"]].rename(columns={"realizado": "Despesa"})
+sr = serie_r[serie_r["ente"] == ente_hist][["ano", "realizada"]].rename(columns={"realizada": "Receita"})
+hist = sd.merge(sr, on="ano", how="inner").sort_values("ano")
+
+if hist.empty:
+    st.info("Sem série de receita e despesa combinada para este ente.", icon="ℹ️")
+else:
+    if usar_real_hist:
+        fatores_h = fatores_ipca(ano_base_hist)
+        for col in ["Despesa", "Receita"]:
+            hist[col] = hist.apply(lambda r: deflacionar(r[col], int(r["ano"]), fatores_h), axis=1)
+    hist["Saldo"] = hist["Receita"] - hist["Despesa"]
+
+    barras = hist.melt(id_vars=["ano"], value_vars=["Receita", "Despesa"], var_name="tipo", value_name="valor")
+    grafico_rd_hist = (
+        alt.Chart(barras)
+        .mark_bar()
+        .encode(
+            x=alt.X("ano:O", title="Ano"),
+            y=alt.Y("valor:Q", title="R$"),
+            xOffset=alt.XOffset("tipo:N", sort=["Receita", "Despesa"]),
+            color=alt.Color("tipo:N", title=None,
+                            scale=alt.Scale(domain=["Receita", "Despesa"], range=[CORES_POR_ENTE[ORDEM_ENTES[1]], CORES_POR_ENTE[ORDEM_ENTES[0]]])),
+            tooltip=[alt.Tooltip("ano:O"), alt.Tooltip("tipo:N"), alt.Tooltip("valor:Q", title="R$", format=",.2f")],
+        )
+        .properties(height=340)
+    )
+    linha_saldo = (
+        alt.Chart(hist)
+        .mark_line(point=True, color="#333", strokeDash=[4, 3])
+        .encode(
+            x=alt.X("ano:O"),
+            y=alt.Y("Saldo:Q"),
+            tooltip=[alt.Tooltip("ano:O"), alt.Tooltip("Saldo:Q", title="Saldo (R$)", format=",.2f")],
+        )
+    )
+    st.altair_chart(grafico_rd_hist, width="stretch")
+    st.caption("Linha tracejada = saldo (receita − despesa). No gráfico acima, barras de Receita vs Despesa.")
+    st.altair_chart(linha_saldo.properties(height=220), width="stretch")
 
 # ---------------------------------------------------------------------------
 # Nota sobre precatórios
