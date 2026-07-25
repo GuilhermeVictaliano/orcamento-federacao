@@ -2,8 +2,12 @@ import pandas as pd
 
 from analise.insights import (
     classificar_dependencia,
+    concentracao_fornecedores,
     dependencia_transferencias,
     destaques,
+    destaques_contratos,
+    destaques_periodo,
+    destaques_poderes,
     per_capita,
     populacoes_validas,
     variacao_real,
@@ -82,3 +86,51 @@ def test_destaques_gera_frases_com_severidade():
     assert all({"icone", "titulo", "texto", "severidade"} <= set(a) for a in achados)
     # deve mencionar a dependência de Guarulhos
     assert any("Guarulhos" in a["texto"] and "depende" in a["texto"] for a in achados)
+
+
+def _contrato(fornecedor, valor):
+    return {"fornecedor": fornecedor, "valor_global": valor, "objeto": "x"}
+
+
+def test_concentracao_fornecedores():
+    df = pd.DataFrame([
+        _contrato("ACME", 700.0), _contrato("ACME", 100.0),
+        _contrato("Beta", 150.0), _contrato("Gama", 50.0),
+    ])
+    c = concentracao_fornecedores(df)
+    assert c["top_fornecedor"] == "ACME"
+    assert round(c["top_share"], 2) == 0.80  # ACME = 800 de 1000
+    assert c["n_fornecedores"] == 3
+    assert c["n_contratos"] == 4
+
+
+def test_destaques_contratos_flag_concentracao():
+    df = pd.DataFrame([_contrato("ACME", 900.0), _contrato("Beta", 100.0)])
+    achados = destaques_contratos(df)
+    assert any("ACME" in a["texto"] for a in achados)
+    assert any(a["severidade"] == "alerta" for a in achados)  # 90% concentração
+
+
+def test_destaques_contratos_vazio():
+    assert destaques_contratos(pd.DataFrame(columns=["fornecedor", "valor_global"])) == []
+
+
+def test_destaques_poderes_maior_estoque():
+    df = pd.DataFrame([
+        {"ente": "União", "poder": "Executivo", "restos_a_pagar": 59e9},
+        {"ente": "Santos", "poder": "Executivo", "restos_a_pagar": 1e6},
+    ])
+    achados = destaques_poderes(df)
+    assert achados and "União" in achados[0]["texto"]
+
+
+def test_destaques_periodo_variacao_entre_mandatos():
+    serie = pd.DataFrame([
+        {"ano": 2019, "mandato": "2019–2022", "valor": 100.0},
+        {"ano": 2022, "mandato": "2019–2022", "valor": 100.0},
+        {"ano": 2023, "mandato": "2023–2026", "valor": 150.0},
+        {"ano": 2024, "mandato": "2023–2026", "valor": 150.0},
+    ])
+    achados = destaques_periodo(serie, "Despesa realizada", "União")
+    assert achados
+    assert "50%" in achados[0]["texto"]  # média 100 -> 150 = +50%

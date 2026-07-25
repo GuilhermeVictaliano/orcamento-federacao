@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import pandas as pd
 import streamlit as st
 
-from app.comum import botao_download_csv, carregar_contratos, fatores_ipca, formatar_reais
+from app.comum import botao_download_csv, carregar_contratos, fatores_ipca, formatar_reais, render_destaques
+from analise.insights import destaques_contratos
 from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis
 from extract.pncp import ORGAOS_CONHECIDOS
@@ -83,6 +84,9 @@ c1, c2, c3 = st.columns(3)
 c1.metric("Contratos encontrados", f"{resumo['quantidade']:,}".replace(",", "."))
 c2.metric("Valor total (global)", formatar_reais(resumo["valor_total"]))
 c3.metric("Maior contrato", formatar_reais(resumo["maior"]))
+
+# Destaques do guardião: concentração de fornecedor e regra 80/20.
+render_destaques(destaques_contratos(tabela), titulo="🛡️ O que vigiar nestes contratos")
 
 # ---------------------------------------------------------------------------
 # Filtros de auditoria

@@ -17,8 +17,9 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from app.comum import abertura, fatores_ipca, formatar_reais, serie_anual_despesa, serie_anual_receita
+from app.comum import abertura, fatores_ipca, formatar_reais, render_destaques, serie_anual_despesa, serie_anual_receita
 from app.cores import ORDEM_ENTES
+from analise.insights import destaques_periodo
 from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis, mandato_do_ano, rotulo_mandato
 
@@ -93,6 +94,8 @@ st.info(
        if tem_parcial else ""),
     icon="ℹ️",
 )
+
+render_destaques(destaques_periodo(serie_ente, metrica, ente), titulo="🛡️ Destaque")
 
 # ---------------------------------------------------------------------------
 # 1. Tendência ao longo do tempo (colorida por mandato)

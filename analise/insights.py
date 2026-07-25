@@ -112,6 +112,122 @@ def _fmt_pct(v) -> str:
     return f"{v:.0%}"
 
 
+def _fmt_milhoes(v) -> str:
+    if v >= 1e9:
+        return f"R$ {v/1e9:,.1f} bi".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {v/1e6:,.1f} mi".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def concentracao_fornecedores(tabela_contratos: pd.DataFrame) -> dict:
+    """Concentração do valor contratado por fornecedor — sinal de favorecimento/dependência.
+
+    Retorna total, nº de contratos e fornecedores, fornecedor líder e sua fatia,
+    e a fatia dos 5 maiores. Dict vazio se não houver dados.
+    """
+    if tabela_contratos.empty or "valor_global" not in tabela_contratos.columns:
+        return {}
+    df = tabela_contratos.dropna(subset=["valor_global"])
+    total = df["valor_global"].sum()
+    if not total:
+        return {}
+    por_forn = df.groupby("fornecedor")["valor_global"].sum().sort_values(ascending=False)
+    return {
+        "total": float(total),
+        "n_contratos": int(len(df)),
+        "n_fornecedores": int(len(por_forn)),
+        "top_fornecedor": str(por_forn.index[0]),
+        "top_valor": float(por_forn.iloc[0]),
+        "top_share": float(por_forn.iloc[0] / total),
+        "top5_share": float(por_forn.head(5).sum() / total),
+    }
+
+
+def destaques_contratos(tabela_contratos: pd.DataFrame) -> list[dict]:
+    """Achados de guardião sobre um conjunto de contratos (concentração e vultosos)."""
+    achados = []
+    c = concentracao_fornecedores(tabela_contratos)
+    if not c:
+        return achados
+
+    # 1. Concentração no maior fornecedor.
+    share = c["top_share"]
+    sev = "alerta" if share >= 0.30 else ("atencao" if share >= 0.15 else "info")
+    achados.append({
+        "icone": "🏗️" if sev == "info" else "⚠️",
+        "titulo": "Concentração de fornecedor",
+        "texto": f"O fornecedor **{c['top_fornecedor']}** concentra **{_fmt_pct(share)}** do valor "
+                 f"contratado ({_fmt_milhoes(c['top_valor'])}), entre {c['n_fornecedores']} fornecedores. "
+                 f"Concentração alta merece um olhar mais atento.",
+        "severidade": sev,
+    })
+
+    # 2. Regra de Pareto: poucos contratos concentram a maior parte do valor.
+    df = tabela_contratos.dropna(subset=["valor_global"]).sort_values("valor_global", ascending=False)
+    total = df["valor_global"].sum()
+    if total:
+        acum = df["valor_global"].cumsum() / total
+        n_ate_80 = int((acum < 0.80).sum()) + 1
+        pct_contratos = n_ate_80 / len(df)
+        achados.append({
+            "icone": "📊",
+            "titulo": "Regra 80/20",
+            "texto": f"**{n_ate_80}** contratos (só {_fmt_pct(pct_contratos)} do total de {c['n_contratos']}) "
+                     f"concentram **80%** de todo o valor. São eles que merecem prioridade na auditoria.",
+            "severidade": "info",
+        })
+    return achados
+
+
+def destaques_poderes(tabela_restos: pd.DataFrame) -> list[dict]:
+    """Achado sobre o estoque de restos a pagar (contas de anos anteriores não quitadas)."""
+    achados = []
+    if tabela_restos.empty or "restos_a_pagar" not in tabela_restos.columns:
+        return achados
+    por_ente = tabela_restos.groupby("ente")["restos_a_pagar"].sum().sort_values(ascending=False)
+    if por_ente.empty or not por_ente.iloc[0]:
+        return achados
+    ente = por_ente.index[0]
+    valor = por_ente.iloc[0]
+    achados.append({
+        "icone": "🧾",
+        "titulo": "Herança de contas a pagar",
+        "texto": f"**{ente}** carrega o maior estoque de restos a pagar: **{_fmt_milhoes(valor)}** em "
+                 f"obrigações de anos anteriores ainda não quitadas.",
+        "severidade": "atencao",
+    })
+    return achados
+
+
+def destaques_periodo(serie_ente: pd.DataFrame, metrica_label: str, ente: str) -> list[dict]:
+    """Achados sobre a trajetória de um ente por mandato.
+
+    `serie_ente` precisa ter colunas: ano, mandato, valor (já deflacionada se real).
+    Compara a média por mandato (variação entre o primeiro e o último mandato com dado).
+    """
+    achados = []
+    if serie_ente.empty or "mandato" not in serie_ente.columns:
+        return achados
+    validos = serie_ente[serie_ente["mandato"] != "—"]
+    medias = validos.groupby("mandato")["valor"].mean()
+    if len(medias) < 2:
+        return achados
+    mandatos = list(medias.index)
+    primeiro, ultimo = medias.iloc[0], medias.iloc[-1]
+    if not primeiro:
+        return achados
+    var = ultimo / primeiro - 1
+    direcao = "cresceu" if var >= 0 else "caiu"
+    sev = "atencao" if abs(var) >= 0.20 else "info"
+    achados.append({
+        "icone": "📈" if var >= 0 else "📉",
+        "titulo": f"{metrica_label} entre mandatos",
+        "texto": f"Em **{ente}**, a média anual {direcao} **{_fmt_pct(abs(var))}** do mandato "
+                 f"{mandatos[0]} para o {mandatos[-1]}.",
+        "severidade": sev,
+    })
+    return achados
+
+
 def destaques(tabela_despesa: pd.DataFrame, tabela_receita: pd.DataFrame, pop_por_ente: dict) -> list[dict]:
     """Gera os destaques do guardião (lista de {icone, titulo, texto, severidade}).
 
