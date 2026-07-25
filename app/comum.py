@@ -219,6 +219,31 @@ def carregar_contratos(cnpj: str, ano: int):
 
 
 @st.cache_data(show_spinner=False)
+def carregar_selic(ano_inicial: int, ano_final: int) -> dict:
+    """Selic média anual (% a.a.) via Banco Central. Cacheada; {} se a API falhar."""
+    from extract.bcb import selic_media_anual
+
+    return selic_media_anual(ano_inicial, ano_final)
+
+
+@st.cache_data(show_spinner="Montando série por bimestre...")
+def serie_despesa_no_bimestre(anos: tuple[int, ...], bimestre: int) -> pd.DataFrame:
+    """Despesa realizada total por ente, num bimestre fixo, para cada ano.
+
+    Serve à projeção: comparar o mesmo bimestre entre anos revela a sazonalidade.
+    Retorna colunas: ente, ano, realizado.
+    """
+    linhas = []
+    for ano in anos:
+        tabela, _, _ = carregar_dados(ano, bimestre)
+        if tabela.empty:
+            continue
+        for ente, val in tabela.groupby("ente")["realizado"].sum().items():
+            linhas.append({"ente": ente, "ano": ano, "realizado": float(val)})
+    return pd.DataFrame(linhas, columns=["ente", "ano", "realizado"])
+
+
+@st.cache_data(show_spinner=False)
 def fatores_ipca(ano_base: int) -> dict:
     """Fatores de deflação (nominal→real em reais do ano-base) por ano, via IPCA/IBGE.
 
