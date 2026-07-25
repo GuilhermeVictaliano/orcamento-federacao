@@ -13,29 +13,33 @@ import pandas as pd
 import streamlit as st
 
 from app.comum import (
+    abertura,
     bimestre_recente_uniao,
     botao_download_csv,
     carregar_dados,
+    carregar_receita,
     enriquecer_com_percentuais,
     formatar_pct,
     formatar_reais,
+    populacoes_por_ente,
+    render_destaques,
 )
 from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES, classificar_execucao
+from analise.insights import destaques, per_capita, populacoes_validas
 from extract.periodos import anos_disponiveis
 
 st.set_page_config(page_title="Orçamento Público: União x Estado x Municípios", layout="wide")
 
 
-st.title("Orçamento Público: União x Estado x Municípios")
+st.title("🛡️ Guardião do Orçamento Público")
 st.caption(
-    "Comparativo entre os três níveis da federação (previsto x executado), "
-    "com base no RREO do SICONFI/Tesouro Nacional."
+    "União x Estado x Municípios, com base no RREO do SICONFI/Tesouro Nacional. "
+    "Este painel não só mostra os números — ele **destaca o que você deveria vigiar**."
 )
-st.info(
-    "Esta visão mostra a **despesa por função de governo** (previsão da LOA + execução) de um "
-    "exercício. A série cobre de 2015 ao ano corrente; use as demais páginas na barra lateral "
-    "para receita, período de governo, saúde fiscal, Poderes e contratos.",
-    icon="ℹ️",
+abertura(
+    "Aqui você compara quanto cada governo **planejou** gastar (LOA) e quanto de fato **executou**, "
+    "por função de governo. Comece pelos **destaques** abaixo; depois explore receita, período de "
+    "governo, saúde fiscal, Poderes e contratos na barra lateral. Série de 2015 ao ano corrente."
 )
 
 modo_periodo = st.radio(
@@ -73,6 +77,18 @@ if entes_sem_dado:
 if tabela.empty:
     st.error("Nenhum dado disponível para os filtros selecionados.")
     st.stop()
+
+# ---------------------------------------------------------------------------
+# Painel do Guardião — destaques automáticos (computados ao vivo)
+# ---------------------------------------------------------------------------
+_receita_destaques, _ = carregar_receita(exercicio, bimestre)
+_pops = populacoes_por_ente(exercicio, bimestre)
+render_destaques(destaques(tabela, _receita_destaques, _pops))
+st.caption(
+    f"Destaques calculados a partir dos dados de {exercicio}. "
+    "Per capita ignora a União (a população federal vem incorreta na fonte)."
+)
+st.divider()
 
 entes_disponiveis = [nome for nome in ORDEM_ENTES if nome in tabela["ente"].unique()]
 entes_selecionados = st.multiselect("Entes", options=entes_disponiveis, default=entes_disponiveis)
@@ -139,6 +155,34 @@ grafico_previsto_executado = (
     .properties(height=380)
 )
 st.altair_chart(grafico_previsto_executado, width="stretch")
+
+# ---------------------------------------------------------------------------
+# Despesa por habitante (comparação justa entre entes de tamanhos diferentes)
+# ---------------------------------------------------------------------------
+st.header("Despesa por habitante")
+st.caption(
+    "Valores absolutos favorecem entes grandes. **Por habitante** é a comparação justa: "
+    "mostra quanto cada governo gasta por pessoa. A União fica de fora (sua população vem incorreta na fonte)."
+)
+_pops_validas = populacoes_validas(_pops)
+_totais_ente = tabela_entes.groupby("ente")["realizado"].sum().to_dict()
+_pc = per_capita(_totais_ente, _pops_validas)
+if _pc:
+    df_pc = pd.DataFrame([{"ente": e, "per_capita": v} for e, v in _pc.items()]).sort_values("per_capita", ascending=False)
+    grafico_pc = (
+        alt.Chart(df_pc)
+        .mark_bar(cornerRadius=4)
+        .encode(
+            x=alt.X("per_capita:Q", title="Despesa realizada por habitante (R$)"),
+            y=alt.Y("ente:N", title=None, sort="-x"),
+            color=alt.Color("ente:N", scale=escala_entes, sort=entes_disponiveis, legend=None),
+            tooltip=[alt.Tooltip("ente:N", title="Ente"), alt.Tooltip("per_capita:Q", title="R$/hab", format=",.0f")],
+        )
+        .properties(height=max(200, 42 * len(df_pc)))
+    )
+    st.altair_chart(grafico_pc, width="stretch")
+else:
+    st.info("Sem população disponível para os entes selecionados neste período.", icon="ℹ️")
 
 # ---------------------------------------------------------------------------
 # Filtros (aplicam-se à seção de função de governo e à tabela completa)

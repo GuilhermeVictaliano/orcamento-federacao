@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import altair as alt
 import streamlit as st
 
-from app.comum import bimestre_recente_uniao, botao_download_csv, carregar_restos_poder, formatar_reais
+from app.comum import abertura, bimestre_recente_uniao, botao_download_csv, carregar_restos_poder, formatar_reais
 from app.cores import CORES_POR_ENTE, ORDEM_ENTES
 from extract.periodos import anos_disponiveis
 from transform.poderes import ORDEM_PODERES
@@ -22,6 +22,10 @@ from transform.poderes import ORDEM_PODERES
 st.set_page_config(page_title="Poderes", layout="wide")
 
 st.title("Poderes — restos a pagar por Poder")
+abertura(
+    "**Restos a pagar** são contas de anos anteriores que o governo empurrou para a frente sem quitar. "
+    "Um estoque grande e crescente é sinal de aperto de caixa — obrigações que já venceram e continuam pendentes."
+)
 st.warning(
     "**Leia antes de interpretar:** o RREO **não** publica a despesa total executada por Poder. "
     "Esta página mostra **restos a pagar** por Poder — obrigações de anos anteriores ainda **não "

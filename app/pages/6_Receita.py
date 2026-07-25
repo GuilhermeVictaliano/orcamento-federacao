@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from app.comum import (
+    abertura,
     bimestre_recente_uniao,
     botao_download_csv,
     carregar_dados,
@@ -22,6 +23,7 @@ from app.comum import (
     formatar_reais,
 )
 from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES
+from analise.insights import classificar_dependencia, dependencia_transferencias
 from extract.periodos import anos_disponiveis
 from transform.receita import totais_receita_por_ente
 
@@ -31,6 +33,11 @@ st.title("Quanto o ente faturou — Receita realizada")
 st.caption(
     "Receita **arrecadada** (realizada) acumulada até o período, comparada com a despesa. "
     "Fonte: RREO-Anexo 01 (Balanço Orçamentário) do SICONFI/Tesouro Nacional."
+)
+abertura(
+    "Não basta saber **quanto** o governo arrecada — importa **de onde** vem. Receita própria "
+    "(impostos, taxas) dá autonomia; depender de **transferências** de outros governos deixa o ente "
+    "vulnerável a cortes. A seção de **autonomia** abaixo mostra quem está mais exposto."
 )
 
 anos = anos_disponiveis()
@@ -76,6 +83,45 @@ for coluna, (ente, linha) in zip(cards, totais_rec.iterrows()):
         pct = (linha["realizada"] / prev) if prev else None
         txt = f"{pct:.1%} da previsão atualizada" if pct is not None else "sem previsão"
         st.caption(f"📈 {txt}")
+
+# ---------------------------------------------------------------------------
+# Autonomia vs dependência de transferências
+# ---------------------------------------------------------------------------
+st.header("Autonomia fiscal — quem arrecada sozinho x quem depende de repasses")
+st.caption(
+    "Fatia da receita que vem de **transferências** de outros governos (União→estados→municípios). "
+    "🔴 acima de 50% = alta dependência (vulnerável a cortes) · 🟡 30–50% · 🟢 abaixo de 30% = mais autônomo."
+)
+dep = dependencia_transferencias(tabela_receita)
+dep = dep[dep["pct_transferencias"].notna()].sort_values("pct_transferencias", ascending=False)
+if dep.empty:
+    st.info("Sem dados de transferências para os entes selecionados.", icon="ℹ️")
+else:
+    cards_dep = st.columns(len(dep))
+    for coluna, (_, linha) in zip(cards_dep, dep.iterrows()):
+        cls = classificar_dependencia(linha["pct_transferencias"])
+        with coluna:
+            st.metric(label=linha["ente"], value=f"{linha['pct_transferencias']:.0%}")
+            st.caption(f"{cls['icone']} {cls['rotulo']} · própria: {linha['pct_tributaria']:.0%}")
+    escala_dep = alt.Scale(domain=ORDEM_ENTES, range=list(CORES_POR_ENTE.values()))
+    graf_dep = (
+        alt.Chart(dep)
+        .mark_bar(cornerRadius=4)
+        .encode(
+            x=alt.X("pct_transferencias:Q", title="% da receita vinda de transferências", axis=alt.Axis(format="%")),
+            y=alt.Y("ente:N", title=None, sort="-x"),
+            color=alt.Color("ente:N", scale=escala_dep, sort=ORDEM_ENTES, legend=None),
+            tooltip=[
+                alt.Tooltip("ente:N", title="Ente"),
+                alt.Tooltip("pct_transferencias:Q", title="% transferências", format=".0%"),
+                alt.Tooltip("pct_tributaria:Q", title="% tributária própria", format=".0%"),
+            ],
+        )
+        .properties(height=max(180, 42 * len(dep)))
+    )
+    rule = alt.Chart(pd.DataFrame({"x": [0.5]})).mark_rule(color="#d03b3b", strokeDash=[4, 3]).encode(x="x:Q")
+    st.altair_chart(graf_dep + rule, width="stretch")
+    st.caption("Linha tracejada vermelha = 50% (limiar de alta dependência).")
 
 # ---------------------------------------------------------------------------
 # Receita x Despesa (superávit / déficit orçamentário)

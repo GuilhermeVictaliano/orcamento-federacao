@@ -4,6 +4,7 @@ Concentra formatação, carregamento cacheado de dados do SICONFI e enriquecimen
 de percentuais, para que cada página não reimplemente o mesmo código.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -37,6 +38,53 @@ def botao_download_csv(df: pd.DataFrame, nome_arquivo: str, label: str = "⬇️
     """Botão de download da tabela em CSV (utf-8-sig, separador ';' — abre bem no Excel BR)."""
     csv = df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(label, data=csv, file_name=nome_arquivo, mime="text/csv")
+
+
+def abertura(texto: str) -> None:
+    """Abertura curta em linguagem simples ('o que você vê e por que importa')."""
+    st.markdown(f"> 🛡️ {texto}")
+
+
+_ESTILO_SEVERIDADE = {
+    "alerta": ("#d03b3b", "🔴"),
+    "atencao": ("#fab219", "🟡"),
+    "positivo": ("#0ca30c", "🟢"),
+    "info": ("#2a78d6", "💡"),
+}
+
+
+def render_destaques(achados: list[dict], titulo: str = "🛡️ Destaques do guardião") -> None:
+    """Renderiza os insights do motor `analise.insights.destaques` como cards com borda colorida."""
+    if not achados:
+        return
+    st.subheader(titulo)
+    colunas = st.columns(min(len(achados), 2))
+    for i, a in enumerate(achados):
+        cor, _ = _ESTILO_SEVERIDADE.get(a.get("severidade", "info"), _ESTILO_SEVERIDADE["info"])
+        # O texto usa **negrito** de markdown; dentro de HTML cru precisa virar <b>.
+        texto_html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", a.get("texto", ""))
+        with colunas[i % len(colunas)]:
+            st.markdown(
+                f"<div style='border-left:5px solid {cor};padding:8px 14px;margin-bottom:10px;"
+                f"background:rgba(128,128,128,0.06);border-radius:4px'>"
+                f"<b>{a.get('icone','')} {a.get('titulo','')}</b><br>{texto_html}</div>",
+                unsafe_allow_html=True,
+            )
+
+
+@st.cache_data(show_spinner=False)
+def populacoes_por_ente(exercicio: int, bimestre: int) -> dict:
+    """População de cada ente no período (do próprio RREO). A da União é inconfiável
+    na fonte — o motor de insights a descarta."""
+    pops = {}
+    for chave, info in ENTES_MVP.items():
+        try:
+            df = baixar_rreo(id_ente=info["id_ente"], exercicio=exercicio, bimestre=bimestre)
+            serie = df["populacao"].dropna() if "populacao" in df else pd.Series(dtype=float)
+            pops[info["nome"]] = int(serie.iloc[0]) if not serie.empty else None
+        except Exception:
+            pops[info["nome"]] = None
+    return pops
 
 
 def enriquecer_com_percentuais(tabela: pd.DataFrame, totais_por_ente: pd.Series) -> pd.DataFrame:

@@ -18,17 +18,20 @@ import pandas as pd
 import streamlit as st
 
 from app.comum import (
+    abertura,
     bimestre_recente_uniao,
     carregar_dados,
     carregar_receita,
     fatores_ipca,
     formatar_pct,
     formatar_reais,
+    populacoes_por_ente,
     serie_anual_despesa,
     serie_anual_receita,
     serie_peso_funcao,
 )
 from app.cores import CORES_POR_ENTE, ORDEM_ENTES
+from analise.insights import per_capita, populacoes_validas
 from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis
 from transform.fiscal import (
@@ -46,6 +49,11 @@ st.title("Saúde fiscal — o governo está apertado?")
 st.caption(
     "Sinais de aperto de contas, comparáveis entre os três níveis da federação. "
     "Fonte: RREO Anexos 01 (receita) e 02 (despesa por função) do SICONFI."
+)
+abertura(
+    "Um governo apertado gasta cada vez mais com o **passado** (previdência, dívida) e menos com o "
+    "**presente** (serviços). Aqui você vê esses sinais, quanto vai para **saúde e educação por "
+    "habitante**, e se receita cobre despesa ao longo dos anos."
 )
 
 anos = anos_disponiveis()
@@ -110,6 +118,49 @@ with cole:
     st.subheader("💸 Encargos Especiais")
     for ente in entes_ord:
         st.metric(label=ente, value=formatar_pct(enc.loc[ente, "peso"]))
+
+# ---------------------------------------------------------------------------
+# 2b. Saúde e Educação por habitante (o que chega ao cidadão)
+# ---------------------------------------------------------------------------
+st.header("Saúde e Educação por habitante")
+st.caption(
+    "Quanto cada governo gasta por pessoa nas duas áreas que mais afetam a vida do cidadão. "
+    "A União fica de fora (população federal incorreta na fonte)."
+)
+_pops = populacoes_validas(populacoes_por_ente(exercicio, bimestre))
+if _pops:
+    saude = tabela_despesa[tabela_despesa["funcao"] == "Saúde"].groupby("ente")["realizado"].sum().to_dict()
+    educ = tabela_despesa[tabela_despesa["funcao"] == "Educação"].groupby("ente")["realizado"].sum().to_dict()
+    pc_saude = per_capita(saude, _pops)
+    pc_educ = per_capita(educ, _pops)
+    linhas_se = []
+    for ente in _pops:
+        if ente in pc_saude:
+            linhas_se.append({"ente": ente, "área": "Saúde", "por_habitante": pc_saude[ente]})
+        if ente in pc_educ:
+            linhas_se.append({"ente": ente, "área": "Educação", "por_habitante": pc_educ[ente]})
+    df_se = pd.DataFrame(linhas_se)
+    if not df_se.empty:
+        graf_se = (
+            alt.Chart(df_se)
+            .mark_bar(cornerRadius=3)
+            .encode(
+                x=alt.X("por_habitante:Q", title="R$ por habitante"),
+                y=alt.Y("ente:N", title=None, sort="-x"),
+                yOffset=alt.YOffset("área:N"),
+                color=alt.Color("área:N", title=None, scale=alt.Scale(domain=["Saúde", "Educação"], range=["#1baf7a", "#2a78d6"])),
+                tooltip=[alt.Tooltip("ente:N"), alt.Tooltip("área:N"), alt.Tooltip("por_habitante:Q", title="R$/hab", format=",.0f")],
+            )
+            .properties(height=max(220, 46 * len(_pops)))
+        )
+        st.altair_chart(graf_se, width="stretch")
+    st.caption(
+        "📏 **Contexto legal:** a Constituição exige aplicar no mínimo **15% em saúde** (EC 29/2000) e "
+        "**25% em educação** (Art. 212) — mas sobre a *receita de impostos*, não sobre a despesa total. "
+        "Os valores acima são gasto por habitante, uma leitura complementar (não o cálculo do mínimo)."
+    )
+else:
+    st.info("Sem população disponível para o per capita neste período.", icon="ℹ️")
 
 # ---------------------------------------------------------------------------
 # 3. Evolução histórica do peso (tendência)

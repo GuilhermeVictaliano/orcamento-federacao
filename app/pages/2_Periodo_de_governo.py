@@ -17,7 +17,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from app.comum import fatores_ipca, formatar_reais, serie_anual_despesa, serie_anual_receita
+from app.comum import abertura, fatores_ipca, formatar_reais, serie_anual_despesa, serie_anual_receita
 from app.cores import ORDEM_ENTES
 from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis, mandato_do_ano, rotulo_mandato
@@ -28,6 +28,11 @@ st.title("Período de governo — mandatos de quatro anos")
 st.caption(
     "Como a despesa/receita de um ente evolui dentro de cada mandato e entre mandatos. "
     "União e estados seguem um calendário eleitoral; municípios, outro (deslocado em 2 anos)."
+)
+abertura(
+    "Gastos costumam seguir o **calendário eleitoral**: sobem perto da eleição, apertam no início do "
+    "mandato. Compare a trajetória **dentro** de cada governo e **entre** governos — e use os valores "
+    "**reais (IPCA)** para não confundir inflação com crescimento de verdade."
 )
 
 col_ente, col_metrica = st.columns(2)
