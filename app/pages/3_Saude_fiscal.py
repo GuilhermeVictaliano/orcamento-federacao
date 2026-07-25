@@ -43,7 +43,7 @@ from transform.fiscal import (
 )
 from transform.receita import totais_receita_por_ente
 
-st.set_page_config(page_title="Saúde fiscal", layout="wide")
+st.set_page_config(page_title="Saúde fiscal", page_icon="🛡️", layout="wide")
 
 st.title("Saúde fiscal — o governo está apertado?")
 st.caption(

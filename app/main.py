@@ -28,7 +28,7 @@ from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES, 
 from analise.insights import destaques, per_capita, populacoes_validas
 from extract.periodos import anos_disponiveis
 
-st.set_page_config(page_title="Orçamento Público: União x Estado x Municípios", layout="wide")
+st.set_page_config(page_title="Guardião do Orçamento Público", page_icon="🛡️", layout="wide")
 
 
 st.title("🛡️ Guardião do Orçamento Público")

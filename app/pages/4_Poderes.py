@@ -27,7 +27,7 @@ from analise.insights import destaques_poderes
 from extract.periodos import anos_disponiveis
 from transform.poderes import ORDEM_PODERES
 
-st.set_page_config(page_title="Poderes", layout="wide")
+st.set_page_config(page_title="Poderes", page_icon="🛡️", layout="wide")
 
 st.title("Poderes — restos a pagar por Poder")
 abertura(

@@ -45,29 +45,35 @@ def abertura(texto: str) -> None:
     st.markdown(f"> 🛡️ {texto}")
 
 
+# cor (hex RGB) por severidade; a ordem também define a prioridade de exibição.
 _ESTILO_SEVERIDADE = {
-    "alerta": ("#d03b3b", "🔴"),
-    "atencao": ("#fab219", "🟡"),
-    "positivo": ("#0ca30c", "🟢"),
-    "info": ("#2a78d6", "💡"),
+    "alerta": (211, 59, 59),
+    "atencao": (250, 178, 25),
+    "positivo": (12, 163, 12),
+    "info": (42, 120, 214),
 }
+_ORDEM_SEVERIDADE = {"alerta": 0, "atencao": 1, "info": 2, "positivo": 3}
 
 
 def render_destaques(achados: list[dict], titulo: str = "🛡️ Destaques do guardião") -> None:
-    """Renderiza os insights do motor `analise.insights.destaques` como cards com borda colorida."""
+    """Renderiza os insights do motor `analise.insights` como cards, do mais crítico ao menos."""
     if not achados:
         return
+    ordenados = sorted(achados, key=lambda a: _ORDEM_SEVERIDADE.get(a.get("severidade", "info"), 9))
     st.subheader(titulo)
-    colunas = st.columns(min(len(achados), 2))
-    for i, a in enumerate(achados):
-        cor, _ = _ESTILO_SEVERIDADE.get(a.get("severidade", "info"), _ESTILO_SEVERIDADE["info"])
+    colunas = st.columns(min(len(ordenados), 2))
+    for i, a in enumerate(ordenados):
+        r, g, b = _ESTILO_SEVERIDADE.get(a.get("severidade", "info"), _ESTILO_SEVERIDADE["info"])
         # O texto usa **negrito** de markdown; dentro de HTML cru precisa virar <b>.
         texto_html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", a.get("texto", ""))
         with colunas[i % len(colunas)]:
             st.markdown(
-                f"<div style='border-left:5px solid {cor};padding:8px 14px;margin-bottom:10px;"
-                f"background:rgba(128,128,128,0.06);border-radius:4px'>"
-                f"<b>{a.get('icone','')} {a.get('titulo','')}</b><br>{texto_html}</div>",
+                f"<div style='border-left:6px solid rgb({r},{g},{b});"
+                f"background:rgba({r},{g},{b},0.08);padding:12px 16px;margin-bottom:12px;"
+                f"border-radius:8px;min-height:96px'>"
+                f"<div style='font-size:1.02rem;font-weight:600;margin-bottom:4px'>"
+                f"{a.get('icone','')} {a.get('titulo','')}</div>"
+                f"<div style='opacity:0.92;line-height:1.4'>{texto_html}</div></div>",
                 unsafe_allow_html=True,
             )
 

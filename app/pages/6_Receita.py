@@ -27,7 +27,7 @@ from analise.insights import classificar_dependencia, dependencia_transferencias
 from extract.periodos import anos_disponiveis
 from transform.receita import totais_receita_por_ente
 
-st.set_page_config(page_title="Receita realizada", layout="wide")
+st.set_page_config(page_title="Receita realizada", page_icon="🛡️", layout="wide")
 
 st.title("Quanto o ente faturou — Receita realizada")
 st.caption(

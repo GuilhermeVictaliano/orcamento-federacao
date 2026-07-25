@@ -1,0 +1,5 @@
+# Tema coeso do "Guardião do Orçamento". Só ajusta a cor de destaque e a fonte —
+# mantém o fundo seguindo a preferência (claro/escuro) do usuário.
+[theme]
+primaryColor = "#2a78d6"
+font = "sans serif"

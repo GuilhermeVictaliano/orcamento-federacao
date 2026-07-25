@@ -23,7 +23,7 @@ from analise.insights import destaques_periodo
 from extract.inflacao import deflacionar
 from extract.periodos import anos_disponiveis, mandato_do_ano, rotulo_mandato
 
-st.set_page_config(page_title="Período de governo", layout="wide")
+st.set_page_config(page_title="Período de governo", page_icon="🛡️", layout="wide")
 
 st.title("Período de governo — mandatos de quatro anos")
 st.caption(

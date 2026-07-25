@@ -21,7 +21,7 @@ from extract.periodos import anos_disponiveis
 from extract.pncp import ORGAOS_CONHECIDOS
 from transform.contratos import resumo_contratos
 
-st.set_page_config(page_title="Contratos (PNCP)", layout="wide")
+st.set_page_config(page_title="Contratos (PNCP)", page_icon="🛡️", layout="wide")
 
 st.title("Contratos públicos — auditoria pelo cidadão (PNCP)")
 st.info(
