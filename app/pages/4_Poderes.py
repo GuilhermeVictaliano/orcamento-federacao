@@ -16,11 +16,11 @@ import streamlit as st
 
 from app.comum import (
     abertura,
-    bimestre_recente_uniao,
     botao_download_csv,
     carregar_restos_poder,
     formatar_reais,
     render_destaques,
+    seletor_ano_bimestre,
 )
 from app.cores import CORES_POR_ENTE, ORDEM_ENTES
 from analise.insights import destaques_poderes
@@ -43,14 +43,7 @@ st.warning(
 )
 
 anos = anos_disponiveis()
-col_ano, col_bim = st.columns(2)
-with col_ano:
-    exercicio = st.selectbox("Exercício", options=anos, index=0)
-ultimo_bimestre = bimestre_recente_uniao(exercicio)
-with col_bim:
-    bimestre = st.selectbox(
-        "Bimestre (RREO)", options=list(range(1, ultimo_bimestre + 1)), index=ultimo_bimestre - 1
-    )
+exercicio, ultimo_bimestre, bimestre = seletor_ano_bimestre(anos, chave="poderes")
 
 tabela, entes_sem_dado = carregar_restos_poder(exercicio, bimestre)
 

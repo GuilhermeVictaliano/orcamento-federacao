@@ -19,13 +19,14 @@ import streamlit as st
 
 from app.comum import (
     abertura,
-    bimestre_recente_uniao,
     carregar_dados,
     carregar_receita,
+    composicao_help,
     fatores_ipca,
     formatar_pct,
     formatar_reais,
     populacoes_por_ente,
+    seletor_ano_bimestre,
     serie_anual_despesa,
     serie_anual_receita,
     serie_peso_funcao,
@@ -57,14 +58,7 @@ abertura(
 )
 
 anos = anos_disponiveis()
-col_ano, col_bim = st.columns(2)
-with col_ano:
-    exercicio = st.selectbox("Exercício", options=anos, index=0)
-ultimo_bimestre = bimestre_recente_uniao(exercicio)
-with col_bim:
-    bimestre = st.selectbox(
-        "Bimestre (RREO)", options=list(range(1, ultimo_bimestre + 1)), index=ultimo_bimestre - 1
-    )
+exercicio, ultimo_bimestre, bimestre = seletor_ano_bimestre(anos, chave="saude")
 
 tabela_despesa, entes_sem_dado, _ = carregar_dados(exercicio, bimestre)
 tabela_receita, _ = carregar_receita(exercicio, bimestre)
@@ -92,9 +86,15 @@ else:
     for coluna, ente in zip(cards, entes_ord):
         saldo = resultado.loc[ente, "saldo"]
         status = classificar_saldo(saldo)
+        comp_desp = composicao_help(
+            tabela_despesa[tabela_despesa["ente"] == ente], "funcao", "realizado", titulo="Onde a despesa foi")
         with coluna:
-            st.metric(label=ente, value=formatar_reais(saldo))
-            st.caption(f"{status['icone']} {status['rotulo']} orçamentário")
+            st.metric(
+                label=ente, value=formatar_reais(saldo),
+                help=(f"Receita {formatar_reais(resultado.loc[ente, 'receita'])} − "
+                      f"Despesa {formatar_reais(resultado.loc[ente, 'despesa'])}.\n\n{comp_desp}"),
+            )
+            st.caption(f"{status['icone']} {status['rotulo']} · 🖱️ detalhe no hover")
 
 # ---------------------------------------------------------------------------
 # 2. Peso da Previdência e dos Encargos Especiais (snapshot do período)

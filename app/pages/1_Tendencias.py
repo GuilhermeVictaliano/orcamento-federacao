@@ -21,19 +21,13 @@ from app.comum import (
     carregar_selic,
     fatores_ipca,
     formatar_reais,
+    projecoes_fechamento,
     render_destaques,
     serie_anual_despesa,
-    serie_despesa_no_bimestre,
     serie_peso_funcao,
 )
 from app.cores import CORES_POR_ENTE, ORDEM_ENTES
-from analise.projecao import (
-    crescimento_vs_inflacao,
-    erro_backtest,
-    fracao_executada,
-    projetar_ano,
-    tendencia_linear,
-)
+from analise.projecao import crescimento_vs_inflacao
 from extract.inflacao import indice_ipca_anual
 from extract.periodos import anos_disponiveis
 from transform.fiscal import FUNCAO_ENCARGOS
@@ -67,23 +61,8 @@ else:
         f"O RREO é acumulado: até o {bim_atual}º bimestre executa-se uma fração historicamente estável "
         f"do ano. **Projeção = realizado até agora ÷ essa fração.** A faixa vem do mínimo/máximo histórico."
     )
-    parcial_hist = serie_despesa_no_bimestre(anos_hist, bim_atual)
-    fechado_hist = serie_despesa_no_bimestre(anos_hist, 6)
-    parcial_atual = serie_despesa_no_bimestre((ano_corrente,), bim_atual)
-
-    proj_por_ente = {}
-    linhas_proj = []
-    for ente in [e for e in ORDEM_ENTES if e in parcial_atual["ente"].values]:
-        parciais = dict(zip(parcial_hist[parcial_hist["ente"] == ente]["ano"], parcial_hist[parcial_hist["ente"] == ente]["realizado"]))
-        fechados = dict(zip(fechado_hist[fechado_hist["ente"] == ente]["ano"], fechado_hist[fechado_hist["ente"] == ente]["realizado"]))
-        saz = fracao_executada(parciais, fechados)
-        atual = parcial_atual[parcial_atual["ente"] == ente]["realizado"]
-        if saz["media"] and not atual.empty:
-            proj = projetar_ano(float(atual.iloc[0]), saz)
-            erro = erro_backtest(parciais, fechados)
-            proj_por_ente[ente] = {**proj, "erro": erro, "fechado_anterior": fechados.get(max(fechados)) if fechados else None}
-            linhas_proj.append({"ente": ente, "tipo": "Projeção", "valor": proj["projecao"],
-                                "minimo": proj.get("minimo"), "maximo": proj.get("maximo")})
+    proj_bruto = projecoes_fechamento(anos_hist, ano_corrente, bim_atual)
+    proj_por_ente = {e: proj_bruto[e] for e in ORDEM_ENTES if e in proj_bruto}
 
     if proj_por_ente:
         for ente, p in proj_por_ente.items():

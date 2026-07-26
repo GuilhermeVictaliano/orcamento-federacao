@@ -16,11 +16,12 @@ import streamlit as st
 
 from app.comum import (
     abertura,
-    bimestre_recente_uniao,
     botao_download_csv,
     carregar_dados,
     carregar_receita,
+    composicao_help,
     formatar_reais,
+    seletor_ano_bimestre,
 )
 from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES
 from analise.insights import classificar_dependencia, dependencia_transferencias
@@ -41,17 +42,7 @@ abertura(
 )
 
 anos = anos_disponiveis()
-col_ano, col_bim = st.columns(2)
-with col_ano:
-    exercicio = st.selectbox("Exercício", options=anos, index=0)
-ultimo_bimestre = bimestre_recente_uniao(exercicio)
-with col_bim:
-    bimestre = st.selectbox(
-        "Bimestre (RREO)",
-        options=list(range(1, ultimo_bimestre + 1)),
-        index=ultimo_bimestre - 1,
-        help="Cada bimestre traz o acumulado desde o início do ano.",
-    )
+exercicio, ultimo_bimestre, bimestre = seletor_ano_bimestre(anos, chave="receita")
 
 tabela_receita, entes_sem_dado = carregar_receita(exercicio, bimestre)
 
@@ -77,12 +68,16 @@ totais_rec = totais_receita_por_ente(tabela_receita).set_index("ente")
 st.header("Receita realizada por ente")
 cards = st.columns(len(totais_rec))
 for coluna, (ente, linha) in zip(cards, totais_rec.iterrows()):
+    comp = composicao_help(
+        tabela_receita[tabela_receita["ente"] == ente], "categoria", "realizada",
+        titulo=f"De onde vem a receita de {ente}",
+    )
     with coluna:
-        st.metric(label=ente, value=formatar_reais(linha["realizada"]))
+        st.metric(label=ente, value=formatar_reais(linha["realizada"]), help=comp)
         prev = linha["previsao_atualizada"]
         pct = (linha["realizada"] / prev) if prev else None
         txt = f"{pct:.1%} da previsão atualizada" if pct is not None else "sem previsão"
-        st.caption(f"📈 {txt}")
+        st.caption(f"📈 {txt} · 🖱️ composição no hover")
 
 # ---------------------------------------------------------------------------
 # Autonomia vs dependência de transferências

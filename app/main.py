@@ -18,10 +18,12 @@ from app.comum import (
     botao_download_csv,
     carregar_dados,
     carregar_receita,
+    composicao_help,
     enriquecer_com_percentuais,
     formatar_pct,
     formatar_reais,
     populacoes_por_ente,
+    projecoes_fechamento,
     render_destaques,
 )
 from app.cores import CORES_POR_ENTE, COR_PREVISTO, COR_REALIZADO, ORDEM_ENTES, classificar_execucao
@@ -42,29 +44,26 @@ abertura(
     "governo, saúde fiscal, Poderes e contratos na barra lateral. Série de 2015 ao ano corrente."
 )
 
-modo_periodo = st.radio(
-    "Período de análise",
-    ["Ano completo (acumulado)", "Bimestre específico"],
-    horizontal=True,
-    help="O RREO é bimestral e cada bimestre já traz o valor acumulado desde o início do ano. "
-    "\"Ano completo\" usa o acumulado até o último bimestre publicado do exercício.",
-)
-
 anos = anos_disponiveis()
-col_ano, col_bimestre = st.columns(2)
-with col_ano:
-    exercicio = st.selectbox("Exercício", options=anos, index=0)
+ano_corrente = anos[0]
+exercicio = st.selectbox("Exercício (ano completo)", options=anos, index=0)
 
-# O ano corrente ainda não fechou o 6º bimestre: usar o último publicado como teto.
+# Análise por ANO INTEIRO: usa o acumulado até o último bimestre publicado do exercício.
 ultimo_bimestre = bimestre_recente_uniao(exercicio)
-with col_bimestre:
-    if modo_periodo == "Bimestre específico":
-        opcoes_bimestre = list(range(1, ultimo_bimestre + 1))
-        bimestre = st.selectbox("Bimestre (RREO)", options=opcoes_bimestre, index=len(opcoes_bimestre) - 1)
-    else:
-        bimestre = ultimo_bimestre
-        rotulo = "6º bimestre (fechamento)" if ultimo_bimestre == 6 else f"{ultimo_bimestre}º bimestre (último publicado)"
-        st.caption(f"Usando o acumulado até o {rotulo}.")
+bimestre = ultimo_bimestre
+ano_parcial = ultimo_bimestre < 6
+if ano_parcial:
+    st.caption(
+        f"⏳ {exercicio} ainda **não fechou** (dados até o {ultimo_bimestre}º bimestre). "
+        "Veja a **projeção de fechamento** abaixo e a aba 📈 Tendências para o ano inteiro estimado."
+    )
+else:
+    st.caption(f"Ano completo de {exercicio} (fechamento no 6º bimestre).")
+with st.expander("⚙️ Analisar por bimestre específico (avançado)"):
+    bimestre = st.selectbox(
+        "Bimestre (RREO)", options=list(range(1, ultimo_bimestre + 1)), index=ultimo_bimestre - 1,
+        help="Cada bimestre traz o acumulado desde o início do ano.",
+    )
 
 tabela, entes_sem_dado, metadados_entes = carregar_dados(exercicio, bimestre)
 
@@ -89,6 +88,37 @@ st.caption(
     "Per capita ignora a União (a população federal vem incorreta na fonte)."
 )
 st.divider()
+
+# ---------------------------------------------------------------------------
+# Projeção de fechamento (só quando o ano corrente ainda não fechou)
+# ---------------------------------------------------------------------------
+if exercicio == ano_corrente and ano_parcial:
+    anos_hist = tuple(a for a in anos if a < ano_corrente)[:4]
+    _proj = projecoes_fechamento(anos_hist, ano_corrente, ultimo_bimestre)
+    if _proj:
+        st.subheader(f"🔮 Projeção de fechamento de {exercicio}")
+        st.caption(
+            "Estimativa do **ano inteiro** a partir do ritmo atual e da sazonalidade histórica — "
+            "**projeção, não valor fechado**. Confiança pelo erro do método nos anos anteriores. "
+            "Detalhes e método na aba 📈 Tendências."
+        )
+        entes_proj = [e for e in ORDEM_ENTES if e in _proj]
+        cols_proj = st.columns(min(len(entes_proj), 4))
+        for i, ente in enumerate(entes_proj):
+            p = _proj[ente]
+            erro = p.get("erro")
+            conf = "🟢 alta" if (erro or 1) < 0.05 else ("🟡 média" if (erro or 1) < 0.12 else "🔴 baixa")
+            ant = p.get("fechado_anterior")
+            delta = (f"{(p['projecao']/ant - 1):+.0%} vs último ano" if ant else None)
+            with cols_proj[i % len(cols_proj)]:
+                st.metric(
+                    f"🔮 {ente}", formatar_reais(p["projecao"]), delta=delta,
+                    help=(f"Projeção do fechamento de {exercicio}. "
+                          f"Faixa: {formatar_reais(p.get('minimo'))} a {formatar_reais(p.get('maximo'))}. "
+                          f"Confiança {conf} (erro histórico do método ~{(erro or 0):.0%})."),
+                )
+                st.caption(f"Confiança {conf}")
+        st.divider()
 
 entes_disponiveis = [nome for nome in ORDEM_ENTES if nome in tabela["ente"].unique()]
 entes_selecionados = st.multiselect("Entes", options=entes_disponiveis, default=entes_disponiveis)
@@ -121,9 +151,17 @@ resumo_ente["pct_execucao"] = resumo_ente.apply(
 cards = st.columns(len(resumo_ente))
 for coluna, (_, linha) in zip(cards, resumo_ente.iterrows()):
     status = classificar_execucao(linha["pct_execucao"])
+    comp = composicao_help(
+        tabela_entes[tabela_entes["ente"] == linha["ente"]], "funcao", "realizado",
+        titulo=f"Onde {linha['ente']} gastou",
+    )
     with coluna:
-        st.metric(label=linha["ente"], value=formatar_pct(linha["pct_execucao"]))
-        st.caption(f"{status['icone']} {status['rotulo']} · % de execução (realizado / previsão atualizada)")
+        st.metric(
+            label=linha["ente"], value=formatar_pct(linha["pct_execucao"]),
+            help=f"Realizado: {formatar_reais(linha['realizado'])} de {formatar_reais(linha['previsao_atualizada'])}"
+                 f" previstos.\n\n{comp}",
+        )
+        st.caption(f"{status['icone']} {status['rotulo']} · passe o mouse para a composição")
 
 resumo_melt = resumo_ente.melt(
     id_vars=["ente", "pct_execucao"],

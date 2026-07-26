@@ -45,6 +45,44 @@ def abertura(texto: str) -> None:
     st.markdown(f"> 🛡️ {texto}")
 
 
+def seletor_ano_bimestre(anos: list[int], chave: str = "") -> tuple[int, int, int]:
+    """Seletor padrão focado no ANO INTEIRO; o bimestre vira opção avançada.
+
+    Retorna (exercicio, ultimo_bimestre, bimestre). Por padrão bimestre = último
+    publicado (= ano completo p/ anos fechados). Um expander permite escolher um
+    bimestre específico.
+    """
+    exercicio = st.selectbox("Exercício (ano completo)", options=anos, index=0, key=f"ano_{chave}")
+    ultimo = bimestre_recente_uniao(exercicio)
+    if ultimo < 6:
+        st.caption(f"⏳ {exercicio} ainda não fechou — dados até o {ultimo}º bimestre (acumulado no ano).")
+    bimestre = ultimo
+    with st.expander("⚙️ Analisar por bimestre específico (avançado)"):
+        bimestre = st.selectbox(
+            "Bimestre (RREO)", options=list(range(1, ultimo + 1)), index=ultimo - 1, key=f"bim_{chave}",
+            help="Cada bimestre traz o acumulado desde o início do ano.",
+        )
+    return exercicio, ultimo, bimestre
+
+
+def composicao_help(df: pd.DataFrame, categoria_col: str, valor_col: str, n: int = 5, titulo: str = "Composição") -> str:
+    """String 'Categoria X% · Categoria Y% · …' para usar como tooltip (help=) de um valor.
+
+    Mostra as `n` maiores categorias e agrupa o restante em 'outros'.
+    """
+    if df.empty or categoria_col not in df or valor_col not in df:
+        return ""
+    agg = df.groupby(categoria_col)[valor_col].sum().sort_values(ascending=False)
+    total = agg.sum()
+    if not total:
+        return ""
+    partes = [f"{cat}: {(val / total):.0%}" for cat, val in agg.head(n).items()]
+    resto = agg.iloc[n:].sum()
+    if resto > 0:
+        partes.append(f"outros: {(resto / total):.0%}")
+    return f"{titulo} — " + " · ".join(partes)
+
+
 # cor (hex RGB) por severidade; a ordem também define a prioridade de exibição.
 _ESTILO_SEVERIDADE = {
     "alerta": (211, 59, 59),
@@ -241,6 +279,39 @@ def serie_despesa_no_bimestre(anos: tuple[int, ...], bimestre: int) -> pd.DataFr
         for ente, val in tabela.groupby("ente")["realizado"].sum().items():
             linhas.append({"ente": ente, "ano": ano, "realizado": float(val)})
     return pd.DataFrame(linhas, columns=["ente", "ano", "realizado"])
+
+
+@st.cache_data(show_spinner="Projetando o fechamento do ano...")
+def projecoes_fechamento(anos_hist: tuple[int, ...], ano_corrente: int, bim_atual: int) -> dict:
+    """Projeção de fechamento do ano corrente por ente (anualização por sazonalidade).
+
+    Retorna {ente: {projecao, minimo, maximo, erro, fechado_anterior}}. Vazio se o ano
+    já fechou (bim_atual>=6) ou não há histórico. Usado pela Home e pela aba Tendências.
+    """
+    from analise.projecao import erro_backtest, fracao_executada, projetar_ano
+
+    if bim_atual >= 6 or not anos_hist:
+        return {}
+    parcial_hist = serie_despesa_no_bimestre(anos_hist, bim_atual)
+    fechado_hist = serie_despesa_no_bimestre(anos_hist, 6)
+    parcial_atual = serie_despesa_no_bimestre((ano_corrente,), bim_atual)
+
+    resultado = {}
+    for ente in parcial_atual["ente"].unique():
+        parciais = dict(zip(
+            parcial_hist[parcial_hist["ente"] == ente]["ano"], parcial_hist[parcial_hist["ente"] == ente]["realizado"]))
+        fechados = dict(zip(
+            fechado_hist[fechado_hist["ente"] == ente]["ano"], fechado_hist[fechado_hist["ente"] == ente]["realizado"]))
+        saz = fracao_executada(parciais, fechados)
+        atual = parcial_atual[parcial_atual["ente"] == ente]["realizado"]
+        if saz["media"] and not atual.empty:
+            proj = projetar_ano(float(atual.iloc[0]), saz)
+            resultado[ente] = {
+                **proj,
+                "erro": erro_backtest(parciais, fechados),
+                "fechado_anterior": fechados.get(max(fechados)) if fechados else None,
+            }
+    return resultado
 
 
 @st.cache_data(show_spinner=False)
