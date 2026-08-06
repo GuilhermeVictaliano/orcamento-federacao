@@ -45,6 +45,12 @@ def abertura(texto: str) -> None:
     st.markdown(f"> 🛡️ {texto}")
 
 
+def negrito_para_html(texto: str) -> str:
+    """Converte **negrito** de markdown em <b> — necessário dentro de blocos HTML crus,
+    onde o Streamlit não interpreta markdown."""
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", texto or "")
+
+
 def seletor_ano_bimestre(anos: list[int], chave: str = "") -> tuple[int, int, int]:
     """Seletor padrão focado no ANO INTEIRO; o bimestre vira opção avançada.
 
@@ -103,7 +109,7 @@ def render_destaques(achados: list[dict], titulo: str = "🛡️ Destaques do gu
     for i, a in enumerate(ordenados):
         r, g, b = _ESTILO_SEVERIDADE.get(a.get("severidade", "info"), _ESTILO_SEVERIDADE["info"])
         # O texto usa **negrito** de markdown; dentro de HTML cru precisa virar <b>.
-        texto_html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", a.get("texto", ""))
+        texto_html = negrito_para_html(a.get("texto", ""))
         with colunas[i % len(colunas)]:
             st.markdown(
                 f"<div style='border-left:6px solid rgb({r},{g},{b});"
@@ -279,6 +285,76 @@ def serie_despesa_no_bimestre(anos: tuple[int, ...], bimestre: int) -> pd.DataFr
         for ente, val in tabela.groupby("ente")["realizado"].sum().items():
             linhas.append({"ente": ente, "ano": ano, "realizado": float(val)})
     return pd.DataFrame(linhas, columns=["ente", "ano", "realizado"])
+
+
+@st.cache_data(show_spinner="Montando as séries para os estudos econométricos...")
+def series_para_estudos(anos: tuple[int, ...], ano_referencia: int) -> dict:
+    """Payload único com tudo que os estudos econométricos precisam.
+
+    Evita que cada estudo recarregue os mesmos dados. Retorna:
+      despesa_por_ente / receita_por_ente : {ente: {ano: valor nominal}}
+      crescimento_real_por_ente           : {ente: {ano: variação real}}
+      niveis, populacoes, selic
+      despesa_ref / receita_ref           : tabelas detalhadas do ano de referência
+      peso_encargos_uniao                 : {ano: fração da despesa federal}
+    """
+    from extract.inflacao import fatores_para_base, indice_ipca_anual
+    from transform.fiscal import FUNCAO_ENCARGOS
+
+    fatores = fatores_para_base(indice_ipca_anual(max(anos)), max(anos))
+    despesa, receita, niveis, populacoes = {}, {}, {}, {}
+    peso_encargos_uniao = {}
+    despesa_ref, receita_ref = [], []
+
+    for ano in sorted(anos):
+        tabela_d, _, _ = carregar_dados(ano, 6)
+        tabela_r, _ = carregar_receita(ano, 6)
+        if not tabela_d.empty:
+            for (ente, nivel), sub in tabela_d.groupby(["ente", "nivel"]):
+                total = float(sub["realizado"].sum())
+                if total <= 0:
+                    continue
+                despesa.setdefault(ente, {})[ano] = total
+                niveis[ente] = nivel
+                if ente == "União":
+                    enc = float(sub[sub["funcao"] == FUNCAO_ENCARGOS]["realizado"].sum())
+                    peso_encargos_uniao[ano] = enc / total
+            if ano == ano_referencia:
+                despesa_ref.append(tabela_d)
+        if not tabela_r.empty:
+            for ente, sub in tabela_r.groupby("ente"):
+                total = float(sub["realizada"].sum())
+                if total > 0:
+                    receita.setdefault(ente, {})[ano] = total
+            if ano == ano_referencia:
+                receita_ref.append(tabela_r)
+
+    # Crescimento REAL (deflacionado) ano a ano — insumo do teste de ciclo político.
+    crescimento = {}
+    for ente, serie in despesa.items():
+        anos_ord = sorted(serie)
+        for i in range(1, len(anos_ord)):
+            atual, anterior = anos_ord[i], anos_ord[i - 1]
+            v_ant = serie[anterior] * fatores.get(anterior, 1)
+            v_atual = serie[atual] * fatores.get(atual, 1)
+            if v_ant:
+                crescimento.setdefault(ente, {})[atual] = v_atual / v_ant - 1
+
+    pops = {e: p for e, p in populacoes_por_ente(ano_referencia, 6).items()
+            if p and niveis.get(e) != "federal"}
+
+    return {
+        "despesa_por_ente": despesa,
+        "receita_por_ente": receita,
+        "crescimento_real_por_ente": crescimento,
+        "niveis": niveis,
+        "populacoes": pops,
+        "selic": carregar_selic(min(anos), max(anos)),
+        "peso_encargos_uniao": peso_encargos_uniao,
+        "despesa_ref": pd.concat(despesa_ref) if despesa_ref else pd.DataFrame(),
+        "receita_ref": pd.concat(receita_ref) if receita_ref else pd.DataFrame(),
+        "ano_referencia": ano_referencia,
+    }
 
 
 @st.cache_data(show_spinner="Projetando o fechamento do ano...")

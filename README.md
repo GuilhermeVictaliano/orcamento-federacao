@@ -125,12 +125,34 @@ Entes cobertos no MVP (códigos IBGE em `extract/config.py`):
    dados faltando ou atrasados para um bimestre — tratado da mesma forma
    acima.
 
+## Estudos econométricos
+
+Além da camada descritiva, o projeto tem uma camada **analítica** com método declarado:
+
+| Estudo | Método | Referência |
+|---|---|---|
+| Sustentabilidade fiscal | Elasticidade despesa-receita por OLS log-log; teste de β=1 | Bohn (1998); Hakkio & Rush (1991) |
+| Ciclo político-orçamentário | Teste de permutação (não-paramétrico) sobre crescimento real | Nordhaus (1975); Rogoff & Sibert (1988) |
+| Rigidez orçamentária | Razão de despesas de baixa discricionariedade | IFI / Tesouro Nacional |
+| Concentração de receita | Índice Herfindahl-Hirschman | Hirschman (1945); Herfindahl (1950) |
+| Desigualdade per capita | Coeficiente de Gini | Gini (1912) |
+| Pass-through de juros | Correlação de Pearson com defasagem | Macro fiscal padrão |
+
+As primitivas estatísticas estão em `analise/econometria.py` (numpy puro, **fórmula na
+docstring**, sem caixa-preta) e são validadas em `tests/test_econometria.py` contra resultados
+analiticamente conhecidos. O teste de permutação usa semente fixa — o p-valor é reprodutível.
+
+Cada estudo declara hipótese, fórmula, veredito e **limitações**. Resultado negativo é reportado
+como resultado: o ciclo político-orçamentário, por exemplo, **não** tem significância estatística
+nesta amostra (p ≈ 0,14).
+
 ## Estrutura do projeto
 
 ```
-extract/      # SICONFI (rreo, periodos, config) + PNCP (pncp) + cache Parquet
+extract/      # SICONFI (rreo, periodos, config) + PNCP (pncp) + BCB (bcb) + cache Parquet
 transform/    # normalizar (Anexo 02), receita (01), fiscal (funções),
               #   poderes (07), contratos (PNCP) — formato "longo" -> tabelas
+analise/      # econometria (primitivas), estudos (6 estudos), insights, projecao
 app/
   main.py     # home: despesa por função (visão geral)
   comum.py    # loaders cacheados + helpers compartilhados entre páginas
